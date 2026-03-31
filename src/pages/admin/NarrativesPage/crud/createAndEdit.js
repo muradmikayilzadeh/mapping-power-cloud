@@ -88,30 +88,35 @@ const CreateNarrativePage = () => {
     fetchData();
   }, [id]);
 
-  const addChapter = () => {
+  const addChapter = (atIndex = -1) => {
     const newChapterKey = `chapter-${Date.now()}`;
     const newChapterId = generateChapterId();
-    setChapters((prev) => {
-      const maxOrder = prev.length > 0 ? Math.max(...prev.map(ch => ch.order !== undefined ? ch.order : 0)) : -1;
-      return [
-        ...prev,
+    const newChapter = {
+      key: newChapterKey,
+      chapter_id: newChapterId,
+      speed: 0.5,
+      content: '',
+      dataJsonText: JSON.stringify(
         {
-          key: newChapterKey,
-          chapter_id: newChapterId,
-          speed: 0.5,
-          content: '',
-          dataJsonText: JSON.stringify(
-            {
-              currentMapFocusLocation: [0, 0],
-              currentZoomLevel: 10,
-              maps: [],
-            },
-            null,
-            2
-          ),
-          order: maxOrder + 1,
+          currentMapFocusLocation: [0, 0],
+          currentZoomLevel: 10,
+          maps: [],
         },
-      ];
+        null,
+        2
+      ),
+      order: 0,
+    };
+
+    setChapters((prev) => {
+      let newChapters = [...prev].sort((a, b) => (a.order || 0) - (b.order || 0));
+      if (atIndex === -1) {
+        newChapters.push(newChapter);
+      } else {
+        newChapters.splice(atIndex, 0, newChapter);
+      }
+      // Re-index all to maintain order consistency
+      return newChapters.map((ch, i) => ({ ...ch, order: i }));
     });
   };
 
@@ -160,7 +165,8 @@ const CreateNarrativePage = () => {
     const sortedChapters = [...chapters].sort((a, b) => (a.order || 0) - (b.order || 0));
     const chaptersForSave = {};
     
-    sortedChapters.forEach((ch, index) => {
+    // Use for...of to allow direct 'return' to stop the update if validation fails
+    for (const [index, ch] of sortedChapters.entries()) {
       const key = ch.key || `chapter-${Date.now()}-${index}`;
       
       // Parse per-chapter Data JSON
@@ -168,8 +174,8 @@ const CreateNarrativePage = () => {
       try {
         parsed = JSON.parse(ch.dataJsonText || '{}');
       } catch (err) {
-        alert(`Chapter "${ch.chapter_id || key}": Data JSON is invalid. Please fix it.`);
-        return;
+        alert(`Chapter ${index + 1}: Data JSON is invalid. Please fix it before saving.`);
+        return; // HALT COMPLETELY
       }
 
       // Basic validation
@@ -184,9 +190,9 @@ const CreateNarrativePage = () => {
 
       if (!hasCenter || !hasZoom) {
         alert(
-          `Chapter "${ch.chapter_id || key}": Data JSON must include "currentMapFocusLocation" as [lng,lat] and "currentZoomLevel" as a number.`
+          `Chapter ${index + 1}: Data JSON is missing required fields ("currentMapFocusLocation" [lng,lat] and "currentZoomLevel" number).`
         );
-        return;
+        return; // HALT COMPLETELY
       }
 
       chaptersForSave[key] = {
@@ -199,7 +205,7 @@ const CreateNarrativePage = () => {
         zoom: parsed.currentZoomLevel, // number
         maps: maps, // [{ id, opacityVal }, ...]
       };
-    });
+    }
 
     // Get the current order if editing, or assign a new order if creating
     let narrativeOrder = 0;
@@ -280,8 +286,25 @@ const CreateNarrativePage = () => {
       </div>
 
       <div className={styles.content} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div className={styles.headBar}>
+        <div className={styles.headBar} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1>{id ? 'Edit Narrative' : 'Create Narrative'}</h1>
+          <button 
+            type="button" 
+            onClick={() => addChapter(0)}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#28a745',
+              color: 'white',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+              boxShadow: '0 2px 4px rgba(40, 167, 69, 0.2)'
+            }}
+          >
+            + Add Chapter
+          </button>
         </div>
 
         <div className={styles.formContainer} style={{ flex: 1, overflowY: 'auto' }}>
@@ -346,165 +369,211 @@ const CreateNarrativePage = () => {
                   <p style={{ marginTop: 12 }}>No chapters yet. Click "Add Chapter".</p>
                 )}
 
-                {[...chapters].sort((a, b) => (a.order || 0) - (b.order || 0)).map((ch, displayIndex) => {
+                {chapters.sort((a, b) => (a.order || 0) - (b.order || 0)).map((ch, displayIndex) => {
                   // Find the actual index in the original array for move/remove operations
                   const actualIndex = chapters.findIndex(c => c.key === ch.key);
                   return (
-                    <div key={ch.key || `chapter-${displayIndex}`} className={styles.chapterItem}>
+                    <React.Fragment key={ch.key || `chapter-${displayIndex}`}>
+                      <div className={styles.chapterItem}>
+                        <div style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center', 
+                          marginBottom: '10px', 
+                          padding: '10px 12px', 
+                          backgroundColor: '#f9f9f9', 
+                          borderRadius: '6px',
+                          border: '1px solid #e0e0e0'
+                        }}>
+                          <strong style={{ fontSize: '16px', color: '#333' }}>Chapter {displayIndex + 1}</strong>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => moveChapter(actualIndex, 'up')}
+                              disabled={displayIndex === 0}
+                              style={{ 
+                                padding: '6px 10px',
+                                fontSize: '12px',
+                                border: '1px solid #d0d0d0',
+                                borderRadius: '4px',
+                                backgroundColor: displayIndex === 0 ? '#f5f5f5' : '#ffffff',
+                                color: displayIndex === 0 ? '#999' : '#333',
+                                cursor: displayIndex === 0 ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (displayIndex !== 0) {
+                                  e.target.style.backgroundColor = '#f0f0f0';
+                                  e.target.style.borderColor = '#b0b0b0';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (displayIndex !== 0) {
+                                  e.target.style.backgroundColor = '#ffffff';
+                                  e.target.style.borderColor = '#d0d0d0';
+                                }
+                              }}
+                              title="Move up"
+                            >
+                              <FontAwesomeIcon icon={faArrowUp} style={{ fontSize: '11px' }} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveChapter(actualIndex, 'down')}
+                              disabled={displayIndex === chapters.length - 1}
+                              style={{ 
+                                padding: '6px 10px',
+                                fontSize: '12px',
+                                border: '1px solid #d0d0d0',
+                                borderRadius: '4px',
+                                backgroundColor: displayIndex === chapters.length - 1 ? '#f5f5f5' : '#ffffff',
+                                color: displayIndex === chapters.length - 1 ? '#999' : '#333',
+                                cursor: displayIndex === chapters.length - 1 ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (displayIndex !== chapters.length - 1) {
+                                  e.target.style.backgroundColor = '#f0f0f0';
+                                  e.target.style.borderColor = '#b0b0b0';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (displayIndex !== chapters.length - 1) {
+                                  e.target.style.backgroundColor = '#ffffff';
+                                  e.target.style.borderColor = '#d0d0d0';
+                                }
+                              }}
+                              title="Move down"
+                            >
+                              <FontAwesomeIcon icon={faArrowDown} style={{ fontSize: '11px' }} />
+                            </button>
+                            <button 
+                              type="button" 
+                              onClick={() => removeChapter(actualIndex)} 
+                              style={{ 
+                                padding: '6px 12px',
+                                fontSize: '12px',
+                                border: '1px solid #dc3545',
+                                borderRadius: '4px',
+                                backgroundColor: '#ffffff',
+                                color: '#dc3545',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                fontWeight: '500'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.backgroundColor = '#dc3545';
+                                e.target.style.color = '#ffffff';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.backgroundColor = '#ffffff';
+                                e.target.style.color = '#dc3545';
+                              }}
+                              title="Remove chapter"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+  
+                        <label>Chapter ID (auto-generated):</label>
+                        <input
+                          type="text"
+                          value={ch.chapter_id}
+                          disabled
+                          style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
+                          title="Chapter ID is auto-generated and cannot be changed"
+                        />
+                        <br />
+  
+                        <label>Speed:</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={ch.speed}
+                          onChange={(e) =>
+                            handleChapterField(
+                              actualIndex,
+                              'speed',
+                              e.target.value === '' ? '' : Number(e.target.value)
+                            )
+                          }
+                        />
+                        <br />
+  
+                        <label>Content:</label>
+                        <Editor
+                          value={ch.content}
+                          onChange={(e) =>
+                            handleChapterField(actualIndex, 'content', e.target.value)
+                          }
+                          className={styles.richTextEditor}
+                        />
+                        <br />
+  
+                        <label>Data JSON (paste from map overlay):</label>
+                        <textarea
+                          rows={8}
+                          value={ch.dataJsonText}
+                          onChange={(e) =>
+                            handleChapterField(actualIndex, 'dataJsonText', e.target.value)
+                          }
+                          placeholder={`{\n  "currentMapFocusLocation": [-122.4194, 37.7749],\n  "currentZoomLevel": 12,\n  "maps": [\n    { "id": "abc", "opacityVal": 1 }\n  ]\n}`}
+                          className={styles.textarea}
+                          style={{ width: '100%', fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      
+                      {/* Insertion divider between chapters */}
                       <div style={{ 
                         display: 'flex', 
-                        justifyContent: 'space-between', 
+                        justifyContent: 'center', 
                         alignItems: 'center', 
-                        marginBottom: '10px', 
-                        padding: '10px 12px', 
-                        backgroundColor: '#f9f9f9', 
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
+                        margin: '20px 0',
+                        position: 'relative'
                       }}>
-                        <strong style={{ fontSize: '16px', color: '#333' }}>Chapter {displayIndex + 1}</strong>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => moveChapter(actualIndex, 'up')}
-                            disabled={displayIndex === 0}
-                            style={{ 
-                              padding: '6px 10px',
-                              fontSize: '12px',
-                              border: '1px solid #d0d0d0',
-                              borderRadius: '4px',
-                              backgroundColor: displayIndex === 0 ? '#f5f5f5' : '#ffffff',
-                              color: displayIndex === 0 ? '#999' : '#333',
-                              cursor: displayIndex === 0 ? 'not-allowed' : 'pointer',
-                              transition: 'all 0.2s',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                            onMouseEnter={(e) => {
-                              if (displayIndex !== 0) {
-                                e.target.style.backgroundColor = '#f0f0f0';
-                                e.target.style.borderColor = '#b0b0b0';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (displayIndex !== 0) {
-                                e.target.style.backgroundColor = '#ffffff';
-                                e.target.style.borderColor = '#d0d0d0';
-                              }
-                            }}
-                            title="Move up"
-                          >
-                            <FontAwesomeIcon icon={faArrowUp} style={{ fontSize: '11px' }} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveChapter(actualIndex, 'down')}
-                            disabled={displayIndex === chapters.length - 1}
-                            style={{ 
-                              padding: '6px 10px',
-                              fontSize: '12px',
-                              border: '1px solid #d0d0d0',
-                              borderRadius: '4px',
-                              backgroundColor: displayIndex === chapters.length - 1 ? '#f5f5f5' : '#ffffff',
-                              color: displayIndex === chapters.length - 1 ? '#999' : '#333',
-                              cursor: displayIndex === chapters.length - 1 ? 'not-allowed' : 'pointer',
-                              transition: 'all 0.2s',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                            onMouseEnter={(e) => {
-                              if (displayIndex !== chapters.length - 1) {
-                                e.target.style.backgroundColor = '#f0f0f0';
-                                e.target.style.borderColor = '#b0b0b0';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (displayIndex !== chapters.length - 1) {
-                                e.target.style.backgroundColor = '#ffffff';
-                                e.target.style.borderColor = '#d0d0d0';
-                              }
-                            }}
-                            title="Move down"
-                          >
-                            <FontAwesomeIcon icon={faArrowDown} style={{ fontSize: '11px' }} />
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => removeChapter(actualIndex)} 
-                            style={{ 
-                              padding: '6px 12px',
-                              fontSize: '12px',
-                              border: '1px solid #dc3545',
-                              borderRadius: '4px',
-                              backgroundColor: '#ffffff',
-                              color: '#dc3545',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s',
-                              fontWeight: '500'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.target.style.backgroundColor = '#dc3545';
-                              e.target.style.color = '#ffffff';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.target.style.backgroundColor = '#ffffff';
-                              e.target.style.color = '#dc3545';
-                            }}
-                            title="Remove chapter"
-                          >
-                            Remove
-                          </button>
-                        </div>
+                        <div style={{ position: 'absolute', width: '100%', height: '1px', backgroundColor: '#e9ecef', zIndex: 0 }}></div>
+                        <button
+                          type="button"
+                          onClick={() => addChapter(displayIndex + 1)}
+                          style={{
+                            position: 'relative',
+                            zIndex: 1,
+                            backgroundColor: '#fff',
+                            border: '1px solid #dee2e6',
+                            borderRadius: '20px',
+                            padding: '4px 12px',
+                            fontSize: '11px',
+                            color: '#6c757d',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            transition: 'all 0.2s',
+                            fontWeight: '600',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = '#007bff';
+                            e.currentTarget.style.color = '#007bff';
+                            e.currentTarget.style.transform = 'scale(1.05)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = '#dee2e6';
+                            e.currentTarget.style.color = '#6c757d';
+                            e.currentTarget.style.transform = 'scale(1)';
+                          }}
+                        >
+                          <span style={{ fontSize: '14px', lineHeight: 1 }}>+</span> Insert Chapter Here
+                        </button>
                       </div>
-
-                      <label>Chapter ID (auto-generated):</label>
-                      <input
-                        type="text"
-                        value={ch.chapter_id}
-                        disabled
-                        style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
-                        title="Chapter ID is auto-generated and cannot be changed"
-                      />
-                      <br />
-
-                      <label>Speed:</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={ch.speed}
-                        onChange={(e) =>
-                          handleChapterField(
-                            actualIndex,
-                            'speed',
-                            e.target.value === '' ? '' : Number(e.target.value)
-                          )
-                        }
-                      />
-                      <br />
-
-                      <label>Content:</label>
-                      <Editor
-                        value={ch.content}
-                        onChange={(e) =>
-                          handleChapterField(actualIndex, 'content', e.target.value)
-                        }
-                        className={styles.richTextEditor}
-                      />
-                      <br />
-
-                      <label>Data JSON (paste from map overlay):</label>
-                      <textarea
-                        rows={8}
-                        value={ch.dataJsonText}
-                        onChange={(e) =>
-                          handleChapterField(actualIndex, 'dataJsonText', e.target.value)
-                        }
-                        placeholder={`{\n  "currentMapFocusLocation": [-122.4194, 37.7749],\n  "currentZoomLevel": 12,\n  "maps": [\n    { "id": "abc", "opacityVal": 1 }\n  ]\n}`}
-                        className={styles.textarea}
-                        style={{ width: '100%', fontFamily: 'monospace' }}
-                      />
-                    </div>
+                    </React.Fragment>
                   );
                 })}
               </div>

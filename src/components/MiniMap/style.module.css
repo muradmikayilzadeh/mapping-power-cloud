@@ -4,6 +4,8 @@
   border-radius: 4px;
   overflow: hidden;
   position: relative;
+  /* Ensure the map is layered above all other interface elements */
+  z-index: 100;
 }
 
 /* Hide all map controls and attribution */

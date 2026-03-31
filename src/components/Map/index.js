@@ -13,12 +13,24 @@ const fetchSettingsData = async () => {
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return docSnap.data();
-    } else {
-      console.error('No such document!');
-      return null;
     }
+    return null;
   } catch (error) {
     console.error('Error fetching settings data:', error);
+    return null;
+  }
+};
+
+const fetchMapData = async (mapId) => {
+  try {
+    const docRef = doc(db, 'maps', mapId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return { id: docSnap.id, ...docSnap.data() };
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error fetching map ${mapId}:`, error);
     return null;
   }
 };
@@ -47,6 +59,8 @@ export default function Map({
 
   // Keep a ref of what we think is on the map (ids)
   const mountedIdsRef = useRef(new Set());
+  // Cache for fetched maps (ID -> FullMapObject)
+  const mapCacheRef = useRef({});
 
   maptilersdk.config.apiKey = 'llr35dKpffrGaP9ECLL8';
 
@@ -147,7 +161,7 @@ export default function Map({
   }, []);
 
   useEffect(() => {
-    if (!mapContainer.current) return;
+    if (!mapContainer.current || map.current) return;
 
     map.current = new maptilersdk.Map({
       container: mapContainer.current,
@@ -164,7 +178,7 @@ export default function Map({
       setLiveZoom(newZoom);
       // Notify parent component of view changes
       if (onMapViewChange) {
-        onMapViewChange(newCenter, newZoom);
+        onMapViewChange({ center: newCenter, zoom: newZoom });
       }
     };
 
@@ -195,10 +209,10 @@ export default function Map({
       // Also update on initial load
       if (onMapViewChange) {
         const c = map.current.getCenter();
-        onMapViewChange(
-          { lng: Number(c.lng.toFixed(6)), lat: Number(c.lat.toFixed(6)) },
-          Number(map.current.getZoom().toFixed(2))
-        );
+        onMapViewChange({
+          center: { lng: Number(c.lng.toFixed(6)), lat: Number(c.lat.toFixed(6)) },
+          zoom: Number(map.current.getZoom().toFixed(2))
+        });
       }
     });
 
@@ -212,15 +226,62 @@ export default function Map({
         mountedIdsRef.current = new Set();
       }
     };
-  }, [mapContainer, mapStyle, location, zoom]);
+  }, [mapContainer]);
+
+  // Handle mapStyle changes separately to preserve current view
+  useEffect(() => {
+    if (!map.current) return;
+    
+    // Check if style actually changed (robust check for both string URIs and JSON objects)
+    const currentStyle = map.current.getStyle();
+    const isNewStyleObject = typeof mapStyle === 'object' && mapStyle !== null;
+    const isCurrentStyleBlank = currentStyle && currentStyle.name === 'Blank';
+
+    if (isNewStyleObject && isCurrentStyleBlank) return;
+    if (!isNewStyleObject && currentStyle && currentStyle.name === mapStyle) return;
+
+    if (map.current) {
+      // If null, we just use a white matte; don't reload style
+      if (mapStyle === null) {
+        if (map.current.getLayer('whiteout-layer')) {
+          map.current.setLayoutProperty('whiteout-layer', 'visibility', 'visible');
+        }
+        return;
+      }
+
+      // If switching to a real style, hide matte and set style
+      if (map.current.getLayer('whiteout-layer')) {
+        map.current.setLayoutProperty('whiteout-layer', 'visibility', 'none');
+      }
+      
+      map.current.setStyle(mapStyle);
+
+      const onStyleLoad = () => {
+        if (!map.current) return;
+        renderMaps(selectedMaps);
+      };
+
+      map.current.on('style.load', onStyleLoad);
+      return () => {
+        if (map.current) {
+          map.current.off('style.load', onStyleLoad);
+        }
+      };
+    }
+  }, [mapStyle]);
 
   // Only update/add/remove as needed (no full re-add)
   useEffect(() => {
     if (!map.current) return;
+    
+    // If in narrative mode, don't allow sidebar maps to overwrite
+    if (selectedNarrative && activeChapter) return;
+
     if (map.current.isStyleLoaded()) {
       renderMaps(selectedMaps);
     } else {
       const onStyleLoad = () => {
+        if (!map.current) return;
         renderMaps(selectedMaps);
         map.current.off('style.load', onStyleLoad);
       };
@@ -230,8 +291,48 @@ export default function Map({
 
   useEffect(() => {
     if (!map.current || !selectedNarrative || !activeChapter) return;
-    const chapter = selectedNarrative.chapters?.[activeChapter];
+    const chapters = selectedNarrative.chapters || {};
+    const chapter = chapters[activeChapter];
     if (!chapter) return;
+
+    // Clear any existing popups when moving to a new chapter
+    const popups = document.getElementsByClassName('maplibregl-popup');
+    while (popups[0]) {
+      popups[0].remove();
+    }
+
+    // Hydrate chapter maps (turn IDs into full objects)
+    const hydrateMaps = async () => {
+      if (!chapter.maps) return;
+
+      const hydrated = await Promise.all(
+        chapter.maps.map(async (m) => {
+          // If already full object, return
+          if (m.image_bounds_coords || m.vector_points) return m;
+
+          const id = typeof m === 'string' ? m : m.id;
+          const opacity = (m.opacityVal !== undefined ? m.opacityVal : (m.opacity !== undefined ? m.opacity : 1));
+
+          // Check cache
+          if (mapCacheRef.current[id]) {
+            return { ...mapCacheRef.current[id], opacity };
+          }
+
+          // Fetch if missing
+          const fullData = await fetchMapData(id);
+          if (fullData) {
+            mapCacheRef.current[id] = fullData;
+            return { ...fullData, opacity };
+          }
+          return null;
+        })
+      );
+
+      const validMaps = hydrated.filter((m) => m !== null);
+      renderMaps(validMaps);
+    };
+
+    hydrateMaps();
 
     const { center, zoom: chapterZoom } = chapter;
 
@@ -247,11 +348,55 @@ export default function Map({
   const renderMaps = (maps) => {
     if (!map.current) return;
 
+    // Ensure whiteout layer exists and is always at the bottom of our custom layers
+    if (!map.current.getSource('whiteout-source')) {
+      map.current.addSource('whiteout-source', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [[
+              [-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]
+            ]]
+          }
+        }
+      });
+      map.current.addLayer({
+        id: 'whiteout-layer',
+        type: 'fill',
+        source: 'whiteout-source',
+        layout: { 
+          visibility: mapStyle === null ? 'visible' : 'none' 
+        },
+        paint: {
+          'fill-color': '#ffffff',
+          'fill-opacity': 1
+        }
+      });
+    } else {
+      // Just ensure it's on bottom (before the first historical or narrative layer if any)
+      const layers = map.current.getStyle().layers || [];
+      const firstDataLayer = layers.find(l => 
+        l.id.startsWith('raster-') || 
+        l.id.startsWith('vector-') || 
+        l.id.startsWith('narrative-')
+      );
+      
+      if (firstDataLayer) {
+        map.current.moveLayer('whiteout-layer', firstDataLayer.id);
+      } else {
+        map.current.moveLayer('whiteout-layer');
+      }
+      
+      map.current.setLayoutProperty('whiteout-layer', 'visibility', mapStyle === null ? 'visible' : 'none');
+    }
+
     const desiredIds = new Set((maps || []).map((m) => m.id));
     const style = map.current.getStyle();
     const existingSources = style?.sources || {};
 
-    // Remove deselected
+    // 1. Remove deselected
     Object.keys(existingSources).forEach((sourceId) => {
       const isAerial = sourceId.startsWith('aerial-source-');
       const isVector = sourceId.startsWith('vector-source-');
@@ -273,107 +418,119 @@ export default function Map({
       }
     });
 
-    // Add or update
-    maps.forEach((mapDetails) => {
-      const { id, opacity = 1, image_bounds_coords, raster_image, vector_points } = mapDetails;
+    // 2. Separate raster and vector maps for layered stacking (all vectors above all rasters)
+    const rasterMaps = [];
+    const vectorMaps = [];
 
-      const isRaster = image_bounds_coords && Array.isArray(image_bounds_coords);
-      const isVector = vector_points && Array.isArray(vector_points);
+    (maps || []).forEach((m) => {
+      if (m.image_bounds_coords && Array.isArray(m.image_bounds_coords)) {
+        rasterMaps.push(m);
+      }
+      if (m.vector_points && Array.isArray(m.vector_points)) {
+        vectorMaps.push(m);
+      }
+    });
 
-      if (isRaster) {
-        const sourceId = `aerial-source-${id}`;
-        const layerId = `overlay-${id}`;
+    // 3. Add or update Raster maps first (bottom layers)
+    // We iterate in order, and move/add to top, so later items in the array end up on top.
+    rasterMaps.forEach((mapDetails) => {
+      const { id, opacity = 1, image_bounds_coords, raster_image } = mapDetails;
+      const sourceId = `aerial-source-${id}`;
+      const layerId = `overlay-${id}`;
 
-        if (!map.current.getSource(sourceId)) {
-          // Add new raster source/layer
-          const coordinates = image_bounds_coords.map((coord) => coord.split(',').map(Number));
-          map.current.addSource(sourceId, {
-            type: 'image',
-            url: raster_image,
-            coordinates,
-          });
-          map.current.addLayer({
-            id: layerId,
-            source: sourceId,
-            type: 'raster',
-            paint: { 'raster-opacity': opacity },
-          });
-          mountedIdsRef.current.add(id);
-        } else {
-          // Update opacity only (no remove/re-add)
-          if (map.current.getLayer(layerId)) {
-            map.current.setPaintProperty(layerId, 'raster-opacity', opacity);
-          }
+      if (!map.current.getSource(sourceId)) {
+        const coordinates = image_bounds_coords.map((coord) => coord.split(',').map(Number));
+        map.current.addSource(sourceId, {
+          type: 'image',
+          url: raster_image,
+          coordinates,
+        });
+        map.current.addLayer({
+          id: layerId,
+          source: sourceId,
+          type: 'raster',
+          paint: { 'raster-opacity': opacity },
+        });
+        mountedIdsRef.current.add(id);
+      } else {
+        // Update opacity
+        if (map.current.getLayer(layerId)) {
+          map.current.setPaintProperty(layerId, 'raster-opacity', opacity);
+          // Move to top of current stack to maintain order relative to other rasters
+          map.current.moveLayer(layerId);
         }
       }
+    });
 
-      if (isVector) {
-        const sourceId = `vector-source-${id}`;
-        const layerId = `vector-layer-${id}`;
+    // 4. Add or update Vector maps next (top layers)
+    vectorMaps.forEach((mapDetails) => {
+      const { id, opacity = 1, vector_points } = mapDetails;
+      const sourceId = `vector-source-${id}`;
+      const layerId = `vector-layer-${id}`;
 
-        if (!map.current.getSource(sourceId)) {
-          const geojson = {
-            type: 'FeatureCollection',
-            features: vector_points.map((point) => ({
-              type: 'Feature',
-              geometry: {
-                type: 'Point',
-                coordinates: point.coordinates.split(',').map(Number),
-              },
-              properties: {
-                bearing: Number(point.bearing),
-                image: point.image,
-                caption: point.description,
-                is_directional: point.is_directional,
-              },
-            })),
-          };
-
-          map.current.addSource(sourceId, { type: 'geojson', data: geojson });
-          map.current.addLayer({
-            id: layerId,
-            type: 'symbol',
-            source: sourceId,
-            layout: {
-              'icon-image': [
-                'case',
-                ['==', ['get', 'is_directional'], true],
-                'arrow-icon-directional',
-                'arrow-icon',
-              ],
-              'icon-size': 0.3,
-              'icon-rotate': ['get', 'bearing'],
-              'icon-allow-overlap': true,
-              'icon-anchor': 'center',
+      if (!map.current.getSource(sourceId)) {
+        const geojson = {
+          type: 'FeatureCollection',
+          features: vector_points.map((point) => ({
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: point.coordinates.split(',').map(Number),
             },
-            paint: { 'icon-opacity': opacity },
-          });
+            properties: {
+              bearing: Number(point.bearing),
+              image: point.image,
+              caption: point.description,
+              is_directional: point.is_directional,
+            },
+          })),
+        };
 
-          // Attach popup once per layer
-          map.current.on('click', layerId, (e) => {
-            const { image, caption } = e.features[0].properties;
-            const coords = e.features[0].geometry.coordinates;
-            new maptilersdk.Popup({ maxWidth: '400px', closeButton: true })
-              .setLngLat(coords)
-              .setHTML(`
-                <div style="text-align:center; width:100%;">
-                  <img
-                    src="${image}"
-                    alt="Marker"
-                    style="width:100%; height:auto; border-radius:5px;"
-                  />
-                  <p style="margin-top:10px; font-size:14px; color:#333;">${caption}</p>
-                </div>
-              `)
-              .addTo(map.current);
-          });
+        map.current.addSource(sourceId, { type: 'geojson', data: geojson });
+        map.current.addLayer({
+          id: layerId,
+          type: 'symbol',
+          source: sourceId,
+          layout: {
+            'icon-image': [
+              'case',
+              ['==', ['get', 'is_directional'], true],
+              'arrow-icon-directional',
+              'arrow-icon',
+            ],
+            'icon-size': 0.3,
+            'icon-rotate': ['get', 'bearing'],
+            'icon-allow-overlap': true,
+            'icon-anchor': 'center',
+          },
+          paint: { 'icon-opacity': opacity },
+        });
 
-          mountedIdsRef.current.add(id);
-        } else {
-          // Update opacity only
-          if (map.current.getLayer(layerId)) {
-            map.current.setPaintProperty(layerId, 'icon-opacity', opacity);
-          }
+        // Attach popup once per layer
+        map.current.on('click', layerId, (e) => {
+          const { image, caption } = e.features[0].properties;
+          const coords = e.features[0].geometry.coordinates;
+          new maptilersdk.Popup({ maxWidth: '400px', closeButton: true })
+            .setLngLat(coords)
+            .setHTML(`
+              <div style="text-align:center; width:100%;">
+                <img
+                  src="${image}"
+                  alt="Marker"
+                  style="width:100%; height:auto; border-radius:5px;"
+                />
+                <p style="margin-top:10px; font-size:14px; color:#333;">${caption}</p>
+              </div>
+            `)
+            .addTo(map.current);
+        });
+
+        mountedIdsRef.current.add(id);
+      } else {
+        // Update opacity and move to top
+        if (map.current.getLayer(layerId)) {
+          map.current.setPaintProperty(layerId, 'icon-opacity', opacity);
+          map.current.moveLayer(layerId);
         }
       }
     });

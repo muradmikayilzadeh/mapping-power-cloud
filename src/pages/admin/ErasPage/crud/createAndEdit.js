@@ -4,11 +4,29 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Editor from 'react-simple-wysiwyg';
 import { faHome, faMap, faBook, faCog, faTimeline, faArrowUp, faArrowDown } from '@fortawesome/free-solid-svg-icons';
 import { collection, getDocs, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import { db } from '../../../../firebase'; // Ensure this path is correct based on your project structure
 import styles from '../style.module.css';
 
 const CreateEraPage = () => {
   const [html, setHtml] = useState('');
+
+  // Helper for React 18 Strict Mode vs react-beautiful-dnd
+  const StrictModeDroppable = ({ children, ...props }) => {
+    const [enabled, setEnabled] = useState(false);
+    useEffect(() => {
+      const animation = requestAnimationFrame(() => setEnabled(true));
+      return () => {
+        cancelAnimationFrame(animation);
+        setEnabled(false);
+      };
+    }, []);
+    if (!enabled) {
+      return null;
+    }
+    return <Droppable {...props}>{children}</Droppable>;
+  };
+
   const [mapEntries, setMapEntries] = useState([]);
   const [mapGroupEntries, setMapGroupEntries] = useState([]);
   const [title, setTitle] = useState('');
@@ -131,6 +149,24 @@ const CreateEraPage = () => {
       setSelectedMaps(items);
     } else {
       setSelectedMapGroups(items);
+    }
+  };
+
+  const onDragEnd = (result) => {
+    const { source, destination } = result;
+    if (!destination) return;
+    if (source.index === destination.index) return;
+
+    if (source.droppableId === 'maps') {
+      const newItems = Array.from(selectedMaps);
+      const [reorderedItem] = newItems.splice(source.index, 1);
+      newItems.splice(destination.index, 0, reorderedItem);
+      setSelectedMaps(newItems);
+    } else if (source.droppableId === 'mapGroups') {
+      const newItems = Array.from(selectedMapGroups);
+      const [reorderedItem] = newItems.splice(source.index, 1);
+      newItems.splice(destination.index, 0, reorderedItem);
+      setSelectedMapGroups(newItems);
     }
   };
 
@@ -317,227 +353,149 @@ const CreateEraPage = () => {
 
               {/* Section for displaying and reordering selected maps and map groups */}
               <div className={styles.orderingSection}>
-                <h3>Selected Maps</h3>
-                {selectedMaps.length === 0 ? (
-                  <p className={styles.emptyMessage}>No maps selected. Add maps from the table above.</p>
-                ) : (
-                  selectedMaps.map((map, index) => {
-                    const isFirst = index === 0;
-                    const isLast = index === selectedMaps.length - 1;
-                    return (
-                      <div key={map} className={styles.orderingItem}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '12px', flexShrink: 0 }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              moveItem(index, -1, 'maps');
-                            }}
-                            disabled={isFirst}
-                            style={{
-                              padding: '6px 10px',
-                              fontSize: '12px',
-                              border: isFirst ? '1px solid #e0e0e0' : '1px solid #d0d0d0',
-                              borderRadius: '4px',
-                              backgroundColor: isFirst ? '#f5f5f5' : '#ffffff',
-                              color: isFirst ? '#999' : '#333',
-                              cursor: isFirst ? 'not-allowed' : 'pointer',
-                              transition: 'all 0.2s',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              minWidth: '36px',
-                              opacity: isFirst ? 0.5 : 1
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!isFirst && !e.target.disabled) {
-                                e.target.style.backgroundColor = '#f0f0f0';
-                                e.target.style.borderColor = '#b0b0b0';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!isFirst && !e.target.disabled) {
-                                e.target.style.backgroundColor = '#ffffff';
-                                e.target.style.borderColor = '#d0d0d0';
-                              }
-                            }}
-                            title={isFirst ? 'Already at top' : 'Move up'}
-                          >
-                            <FontAwesomeIcon icon={faArrowUp} style={{ fontSize: '11px' }} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              moveItem(index, 1, 'maps');
-                            }}
-                            disabled={isLast}
-                            style={{
-                              padding: '6px 10px',
-                              fontSize: '12px',
-                              border: isLast ? '1px solid #e0e0e0' : '1px solid #d0d0d0',
-                              borderRadius: '4px',
-                              backgroundColor: isLast ? '#f5f5f5' : '#ffffff',
-                              color: isLast ? '#999' : '#333',
-                              cursor: isLast ? 'not-allowed' : 'pointer',
-                              transition: 'all 0.2s',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              minWidth: '36px',
-                              opacity: isLast ? 0.5 : 1
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!isLast && !e.target.disabled) {
-                                e.target.style.backgroundColor = '#f0f0f0';
-                                e.target.style.borderColor = '#b0b0b0';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!isLast && !e.target.disabled) {
-                                e.target.style.backgroundColor = '#ffffff';
-                                e.target.style.borderColor = '#d0d0d0';
-                              }
-                            }}
-                            title={isLast ? 'Already at bottom' : 'Move down'}
-                          >
-                            <FontAwesomeIcon icon={faArrowDown} style={{ fontSize: '11px' }} />
-                          </button>
-                        </div>
-                        <span style={{ flexGrow: 1, marginRight: '10px' }}>{mapEntries.find(entry => entry.id === map)?.title || map}</span>
-                        <div className={styles.orderingButtons}>
-                          <button 
-                            type="button" 
-                            onClick={() => toggleIndentation(map, 'maps')}
-                            className={isIndented(map) ? styles.indented : ''}
-                          >
-                            Indentation
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => handleRemoveMap(map)}
-                            className={styles.removeButton}
-                          >
-                            Remove
-                          </button>
-                        </div>
+                <DragDropContext onDragEnd={onDragEnd}>
+                  <h3>Selected Maps</h3>
+                  <StrictModeDroppable droppableId="maps">
+                    {(provided) => (
+                      <div {...provided.droppableProps} ref={provided.innerRef}>
+                        {selectedMaps.length === 0 ? (
+                          <p className={styles.emptyMessage}>No maps selected. Add maps from the table above.</p>
+                        ) : (
+                          selectedMaps.map((map, index) => (
+                            <Draggable key={String(map)} draggableId={String(map)} index={index}>
+                              {(provided) => (
+                                <div
+                                  ref={provided.innerRef}
+                                  {...provided.draggableProps}
+                                  {...provided.dragHandleProps}
+                                  className={styles.orderingItem}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '12px', flexShrink: 0 }}>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        moveItem(index, -1, 'maps');
+                                      }}
+                                      disabled={index === 0}
+                                      className={styles.miniMoveButton}
+                                    >
+                                      <FontAwesomeIcon icon={faArrowUp} style={{ fontSize: '11px' }} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        moveItem(index, 1, 'maps');
+                                      }}
+                                      disabled={index === selectedMaps.length - 1}
+                                      className={styles.miniMoveButton}
+                                    >
+                                      <FontAwesomeIcon icon={faArrowDown} style={{ fontSize: '11px' }} />
+                                    </button>
+                                  </div>
+                                  <span style={{ flexGrow: 1, marginRight: '10px' }}>
+                                    {mapEntries.find(entry => entry.id === map)?.title || map}
+                                  </span>
+                                  <div className={styles.orderingButtons}>
+                                    <button 
+                                      type="button" 
+                                      onClick={() => toggleIndentation(map, 'maps')}
+                                      className={isIndented(map) ? styles.indented : ''}
+                                    >
+                                      Indentation
+                                    </button>
+                                    <button 
+                                      type="button" 
+                                      onClick={() => handleRemoveMap(map)}
+                                      className={styles.removeButton}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </Draggable>
+                          ))
+                        )}
+                        {provided.placeholder}
                       </div>
-                    );
-                  })
-                )}
+                    )}
+                  </StrictModeDroppable>
 
-                <h3>Selected Map Groups</h3>
-                {selectedMapGroups.length === 0 ? (
-                  <p className={styles.emptyMessage}>No map groups selected. Add map groups from the table above.</p>
-                ) : (
-                  selectedMapGroups.map((mapGroup, index) => {
-                    const isFirst = index === 0;
-                    const isLast = index === selectedMapGroups.length - 1;
-                    return (
-                      <div key={mapGroup} className={styles.orderingItem}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '12px', flexShrink: 0 }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              moveItem(index, -1, 'mapGroups');
-                            }}
-                            disabled={isFirst}
-                            style={{
-                              padding: '6px 10px',
-                              fontSize: '12px',
-                              border: isFirst ? '1px solid #e0e0e0' : '1px solid #d0d0d0',
-                              borderRadius: '4px',
-                              backgroundColor: isFirst ? '#f5f5f5' : '#ffffff',
-                              color: isFirst ? '#999' : '#333',
-                              cursor: isFirst ? 'not-allowed' : 'pointer',
-                              transition: 'all 0.2s',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              minWidth: '36px',
-                              opacity: isFirst ? 0.5 : 1
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!isFirst && !e.target.disabled) {
-                                e.target.style.backgroundColor = '#f0f0f0';
-                                e.target.style.borderColor = '#b0b0b0';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!isFirst && !e.target.disabled) {
-                                e.target.style.backgroundColor = '#ffffff';
-                                e.target.style.borderColor = '#d0d0d0';
-                              }
-                            }}
-                            title={isFirst ? 'Already at top' : 'Move up'}
-                          >
-                            <FontAwesomeIcon icon={faArrowUp} style={{ fontSize: '11px' }} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              moveItem(index, 1, 'mapGroups');
-                            }}
-                            disabled={isLast}
-                            style={{
-                              padding: '6px 10px',
-                              fontSize: '12px',
-                              border: isLast ? '1px solid #e0e0e0' : '1px solid #d0d0d0',
-                              borderRadius: '4px',
-                              backgroundColor: isLast ? '#f5f5f5' : '#ffffff',
-                              color: isLast ? '#999' : '#333',
-                              cursor: isLast ? 'not-allowed' : 'pointer',
-                              transition: 'all 0.2s',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              minWidth: '36px',
-                              opacity: isLast ? 0.5 : 1
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!isLast && !e.target.disabled) {
-                                e.target.style.backgroundColor = '#f0f0f0';
-                                e.target.style.borderColor = '#b0b0b0';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!isLast && !e.target.disabled) {
-                                e.target.style.backgroundColor = '#ffffff';
-                                e.target.style.borderColor = '#d0d0d0';
-                              }
-                            }}
-                            title={isLast ? 'Already at bottom' : 'Move down'}
-                          >
-                            <FontAwesomeIcon icon={faArrowDown} style={{ fontSize: '11px' }} />
-                          </button>
-                        </div>
-                        <span style={{ flexGrow: 1, marginRight: '10px' }}>{mapGroupEntries.find(entry => entry.id === mapGroup)?.title || mapGroup}</span>
-                        <div className={styles.orderingButtons}>
-                          <button 
-                            type="button" 
-                            onClick={() => toggleIndentation(mapGroup, 'mapGroups')}
-                            className={isIndented(mapGroup) ? styles.indented : ''}
-                          >
-                            Indentation
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => handleRemoveMapGroup(mapGroup)}
-                            className={styles.removeButton}
-                          >
-                            Remove
-                          </button>
-                        </div>
+                  <h3>Selected Map Groups</h3>
+                  <StrictModeDroppable droppableId="mapGroups">
+                    {(provided) => (
+                      <div {...provided.droppableProps} ref={provided.innerRef}>
+                        {selectedMapGroups.length === 0 ? (
+                          <p className={styles.emptyMessage}>No map groups selected. Add map groups from the table above.</p>
+                        ) : (
+                          selectedMapGroups.map((mapGroup, index) => (
+                            <Draggable key={String(mapGroup)} draggableId={String(mapGroup)} index={index}>
+                              {(provided) => (
+                                <div
+                                  ref={provided.innerRef}
+                                  {...provided.draggableProps}
+                                  {...provided.dragHandleProps}
+                                  className={styles.orderingItem}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '12px', flexShrink: 0 }}>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        moveItem(index, -1, 'mapGroups');
+                                      }}
+                                      disabled={index === 0}
+                                      className={styles.miniMoveButton}
+                                    >
+                                      <FontAwesomeIcon icon={faArrowUp} style={{ fontSize: '11px' }} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        moveItem(index, 1, 'mapGroups');
+                                      }}
+                                      disabled={index === selectedMapGroups.length - 1}
+                                      className={styles.miniMoveButton}
+                                    >
+                                      <FontAwesomeIcon icon={faArrowDown} style={{ fontSize: '11px' }} />
+                                    </button>
+                                  </div>
+                                  <span style={{ flexGrow: 1, marginRight: '10px' }}>
+                                    {mapGroupEntries.find(entry => entry.id === mapGroup)?.title || mapGroup}
+                                  </span>
+                                  <div className={styles.orderingButtons}>
+                                    <button 
+                                      type="button" 
+                                      onClick={() => toggleIndentation(mapGroup, 'mapGroups')}
+                                      className={isIndented(mapGroup) ? styles.indented : ''}
+                                    >
+                                      Indentation
+                                    </button>
+                                    <button 
+                                      type="button" 
+                                      onClick={() => handleRemoveMapGroup(mapGroup)}
+                                      className={styles.removeButton}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </Draggable>
+                          ))
+                        )}
+                        {provided.placeholder}
                       </div>
-                    );
-                  })
-                )}
+                    )}
+                  </StrictModeDroppable>
+                </DragDropContext>
               </div>
 
               <br /><br />

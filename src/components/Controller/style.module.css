@@ -80,40 +80,43 @@
     position: relative;
 }
 
-.backButtonPinned {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    background: rgb(239, 239, 239);
-    padding-bottom: 0.75rem;
-}
 
 /* Narrative "carousel" styling */
 .narrativeContent {
+    /* Restore mandatory snap for the "bound in place" feel */
     scroll-snap-type: y mandatory;
+    scroll-padding-top: 0; 
+    background: transparent;
+    padding: 0 !important; /* Ensure children can hit 100% height accurately */
 }
 
 .chapterSection {
     scroll-snap-align: start;
-    /* Make each chapter effectively a "slide" that fills
-       most of the narrative viewport so only one shows at a time */
-    min-height: calc(100% - 3rem);
+    min-height: 100%; /* Fill the entire container height */
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 1.5rem 1.25rem;
-    border-bottom: 1px solid #d0d0d0;
-}
-
-.chapterSection:last-of-type {
-    border-bottom: none;
+    padding: 4rem 2rem;
+    box-sizing: border-box;
+    border-bottom: 1px solid rgba(0,0,0,0.05); /* Subtle separation */
 }
 
 .chapterSection p {
-    max-width: 42rem;
+    max-width: 44rem;
     margin: 0 auto;
-    line-height: 1.6;
-    font-size: 0.95rem;
+    line-height: 1.8;
+    font-size: 1.1rem;
+    color: #333;
+}
+
+/* Style for any headers that might be in the narrative content */
+.chapterSection h1, .chapterSection h2, .chapterSection h3 {
+    margin-top: 0;
+    margin-bottom: 2rem;
+    color: #111;
+    text-align: center;
+    font-weight: 700;
 }
 
 .controller .chapterList{
@@ -228,15 +231,58 @@
     margin-left: 20px;
 }
 
-.narrativeList{
-    display: flex;
-    flex-direction: column;
-    padding:0;
+/* Table of Contents Styling (Full Height) */
+.tocContainer {
+    padding: 2.5rem 1.5rem;
+    min-height: 100%;
 }
 
-.narrativeList li{
-    list-style:none;
-    margin-bottom: 1rem;
+.tocHeading {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 2rem;
+    color: #111;
+    border-bottom: 2px solid #333;
+    display: inline-block;
+    padding-bottom: 0.5rem;
+}
+
+.narrativeList {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    margin: 0;
+}
+
+.narrativeItem {
+    list-style: none;
+    margin-bottom: 1.5rem;
+    padding: 1.5rem;
+    background: #fff;
+    border-radius: 8px;
+    border: 1px solid rgba(0,0,0,0.05);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+
+.narrativeItem:hover {
+    box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+    transform: translateY(-2px);
+    border-color: #1e90ff;
+}
+
+.narrativeItem .narrativeTitle {
+    font-weight: bold;
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+    color: #1e90ff;
+}
+
+.narrativeItem .narrativeDescription {
+    color: #555;
+    font-size: 0.95rem;
+    line-height: 1.5;
 }
 
 

@@ -13,6 +13,7 @@ function Controller({
   onNarrativeSelect,
   flyToLocation,
   onActiveChapterChange,
+  activeChapter,
   onUpdateOpacity,
   mapView,
   mapStyle,
@@ -33,6 +34,54 @@ function Controller({
   const footnoteCounterRef = useRef(0);    // global counter for unique ids per narrative render
 
   const narrativeRef = useRef(null);
+
+  // Memoized lookup for all available maps (id -> MapObject)
+  const allMapsLookup = useMemo(() => {
+    const lookup = {};
+    chapters.forEach(chapter => {
+      (chapter.maps || []).forEach(m => {
+        if (m && m.id) lookup[m.id] = m;
+      });
+    });
+    return lookup;
+  }, [chapters]);
+
+  // Sync narrative maps to sidebar selections when switching to 'maps' view
+  const syncNarrativeToMaps = () => {
+    if (selectedNarrative && activeChapter) {
+      const chapter = (selectedNarrative.chapters || {})[activeChapter];
+      if (chapter && chapter.maps) {
+        const newCheckedMaps = {};
+        const newSliderValues = {};
+        const newSelectedOrder = [];
+        const newSelectedMaps = [];
+
+        chapter.maps.forEach(m => {
+          const id = typeof m === 'string' ? m : m.id;
+          const fullMap = allMapsLookup[id];
+          if (fullMap) {
+            newCheckedMaps[id] = true;
+            newSliderValues[id] = (m.opacityVal !== undefined ? m.opacityVal : (m.opacity !== undefined ? m.opacity : 1));
+            newSelectedOrder.push(id);
+            newSelectedMaps.push({ ...fullMap, opacity: newSliderValues[id] });
+          }
+        });
+
+        // Batch update state
+        setCheckedMaps(newCheckedMaps);
+        setSliderValues(newSliderValues);
+        setSelectedMapsOrder(newSelectedOrder);
+        onMapSelect(newSelectedMaps);
+      }
+    }
+  };
+
+  // Continuous sync: Mirror narrative state to sidebar whenever chapter changes
+  useEffect(() => {
+    if (selectedNarrative && activeChapter !== null) {
+      syncNarrativeToMaps();
+    }
+  }, [activeChapter, selectedNarrative, allMapsLookup]);
 
   const handleFlyToLocation = (mapDetails) => {
     if (!flyToLocation || !mapDetails) return;
@@ -140,6 +189,7 @@ function Controller({
     fetchChaptersAndNarratives();
   }, []);
 
+/*
   // Reset selection when switching to narratives view or when narrative is selected
   useEffect(() => {
     if (view === 'narratives' && selectedNarrative) {
@@ -149,6 +199,7 @@ function Controller({
       setSelectedMapsOrder([]);
     }
   }, [view, selectedNarrative]);
+*/
 
   const handleCheckboxChange = async (mapId, checked) => {
     try {
@@ -349,64 +400,65 @@ function Controller({
     setFootnoteHtml('');
   }, [selectedNarrative]);
 
-  // Active chapter tracking
+  // Active chapter tracking via IntersectionObserver
   useEffect(() => {
     if (!selectedNarrative || !narrativeRef.current) return;
-
+    
     const sections = narrativeRef.current.querySelectorAll('section');
     if (sections.length === 0) return;
 
-    let currentActiveId = null;
+    // Local variable to track what we've already notified the parent about
+    let currentActiveId = activeChapter;
 
     const obs = new IntersectionObserver(
       (entries) => {
-        // Find the entry with the highest intersection ratio
+        // To handle chapters taller than the viewport, we look for the one
+        // that occupies the most vertical space in the visible area.
         let bestEntry = null;
-        let bestRatio = 0;
+        let maxVisibleHeight = 0;
+
+        // The observer trigger might give us multiple entries; we check all
+        // observed sections to see which is most prominent.
+        sections.forEach((sec) => {
+          // Note: entries only contains things that changed, but for safety
+          // we can rely on the entries provided or a more global check.
+          // However, IntersectionObserverEntry has intersectionRect which is perfect.
+        });
 
         entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.intersectionRatio > bestRatio) {
-            bestRatio = entry.intersectionRatio;
-            bestEntry = entry;
+          if (entry.isIntersecting) {
+            const visibleHeight = entry.intersectionRect.height;
+            if (visibleHeight > maxVisibleHeight) {
+              maxVisibleHeight = visibleHeight;
+              bestEntry = entry;
+            }
           }
         });
 
-        // Only activate if we have a clear winner (at least 60% visible) and it's different from current
-        if (bestEntry && bestRatio >= 0.6) {
+        // Only switch if the "best" entry is sufficiently visible or dominant
+        if (bestEntry) {
           const chapterId = bestEntry.target.id;
-          
-          // Only update if it's a different chapter to prevent unnecessary updates
           if (chapterId !== currentActiveId) {
             currentActiveId = chapterId;
-            
-            console.log('=== CHAPTER ACTIVATED ===');
-            console.log('Chapter ID:', chapterId);
-            
-            if (selectedNarrative && selectedNarrative.chapters && selectedNarrative.chapters[chapterId]) {
-              const chapterDetails = selectedNarrative.chapters[chapterId];
-              console.log('Chapter Details:', JSON.stringify(chapterDetails, null, 2));
-              console.log('Chapter Center:', chapterDetails.center);
-              console.log('Chapter Zoom:', chapterDetails.zoom);
-              console.log('Chapter Maps:', chapterDetails.maps);
-            }
-            
+            console.log(`=== CHAPTER ACTIVATED (DOMINANT AREA) === ${chapterId}`);
             onActiveChapterChange(chapterId);
           }
         }
       },
       { 
         root: narrativeRef.current, 
-        threshold: 0.6
+        // Monitor many points to ensure we catch transitions accurately
+        threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        rootMargin: '-10% 0px -10% 0px' // Focus on the middle 80% of the viewport
       }
     );
 
     sections.forEach((sec) => obs.observe(sec));
 
     return () => {
-      sections.forEach((sec) => obs.unobserve(sec));
-      currentActiveId = null;
+      obs.disconnect();
     };
-  }, [selectedNarrative, onActiveChapterChange]);
+  }, [selectedNarrative, onActiveChapterChange, activeChapter]);
 
   // Footnote click + keyboard (event delegation)
   const onNarrativeClick = (e) => {
@@ -435,45 +487,67 @@ function Controller({
   return (
     <div className={styles.controller}>
       <div className={styles.headings}>
-        <div className={view === 'maps' ? styles.active : ''} onClick={() => setView('maps')}>
+        <div 
+          className={view === 'maps' ? styles.active : ''} 
+          onClick={() => {
+            if (view !== 'maps') {
+              syncNarrativeToMaps();
+              setView('maps');
+              // Tell main experience to exit narrative mode but preserve the current synced state (maps and extent)
+              if (selectedNarrative) {
+                onNarrativeSelect(null, { preserveState: true });
+              }
+            }
+          }}
+        >
           <span>maps and plans</span>
         </div>
         <div
           className={view === 'narratives' ? styles.active : ''}
-          onClick={() => setView('narratives')}
+          onClick={() => {
+            setView('narratives');
+            // Returning to ToC by clearing selected narrative
+            setSelectedNarrative(null);
+            onNarrativeSelect(null);
+          }}
         >
           <span>narratives</span>
         </div>
       </div>
 
-      {view === 'maps' && (
-        <div className={styles.sectionInfo}>
-          <div className={styles.textArea}>
+      <div className={styles.sectionInfo}>
+        <div className={styles.textArea}>
+          {view === 'maps' ? (
             <p>
               Historical maps and plans are organized chronologically. Use the slider bars to
               compare different plans. Many maps are accompanied by pin layers that contain
               ground-level views of how the city looked, or might have looked.
             </p>
-          </div>
-          <div className={styles.miniMap}>
-            {mapView ? (
-              <MiniMap
-                center={mapView.center}
-                // Use a darker, high-contrast basemap so the thumbnail
-                // clearly stands apart from the main map.
-                mapStyle={maptilersdk.MapStyle.DATAVIZ.DARK}
-                // Keep a consistently zoomed-out overview, independent
-                // of the main map zoom level.
-                fixedZoom={9}
-              />
-            ) : (
-              <div style={{ width: '100%', height: '100%', backgroundColor: '#e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ color: '#999' }}>Loading map...</span>
-              </div>
-            )}
-          </div>
+          ) : !selectedNarrative ? (
+            <p>
+              The narratives explore various historical facets of San Francisco. Select a title 
+              below to read more.
+            </p>
+          ) : (
+            <p>
+              Reading: <strong>{selectedNarrative.title}</strong>
+            </p>
+          )}
         </div>
-      )}
+        <div className={styles.miniMap}>
+          {mapView ? (
+            <MiniMap
+              center={mapView.center}
+              mapStyle={maptilersdk.MapStyle.BASIC.LIGHT}
+              fixedZoom={9}
+            />
+          ) : (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ color: '#999' }}>Loading position...</span>
+            </div>
+          )}
+        </div>
+      </div>
 
       {view === 'maps' && (
         <div className={styles.sectionContent}>
@@ -567,9 +641,9 @@ function Controller({
       )}
 
       {view === 'narratives' && !selectedNarrative && (
-        <div className={styles.sectionInfo}>
-          <div className={styles.textArea}>
-            <h2>Table of Contents</h2>
+        <div className={`${styles.sectionContent} ${styles.narrativeContent}`}>
+          <div className={styles.tocContainer}>
+            <h2 className={styles.tocHeading}>Table of Contents</h2>
             <ul className={styles.narrativeList}>
               {narratives.map((narr) => (
                 <li
@@ -586,15 +660,6 @@ function Controller({
               ))}
             </ul>
           </div>
-          <div className={styles.miniMap}>
-            {mapView ? (
-              <MiniMap center={mapView.center} mapStyle={mapStyle} fixedZoom={10} />
-            ) : (
-              <div style={{ width: '100%', height: '100%', backgroundColor: '#e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ color: '#999' }}>Loading map...</span>
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -605,25 +670,6 @@ function Controller({
           onClick={onNarrativeClick}
           onKeyDown={onNarrativeKeyDown}
         >
-          <button
-            className={styles.backButtonPinned}
-            onClick={() => {
-              setSelectedNarrative(null);
-              onNarrativeSelect(null);
-            }}
-            style={{
-              marginBottom: '1rem',
-              padding: '0.5rem 1rem',
-              cursor: 'pointer',
-              backgroundColor: '#f0f0f0',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              color: '#333',
-              fontWeight: '500',
-            }}
-          >
-            ← Back to Table of Contents
-          </button>
           {selectedNarrative.chapters ? (
             processedChapters.map(({ cid, html }) => (
               <section key={cid} id={cid} className={styles.chapterSection}>

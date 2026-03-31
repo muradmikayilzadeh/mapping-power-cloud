@@ -25,6 +25,7 @@ const MainPage = () => {
   const [mapView, setMapView] = useState({ center: { lng: -122.4194, lat: 37.7749 }, zoom: 12 });
   // Track previous narrative to detect exit
   const prevNarrativeRef = useRef(null);
+  const skipResetRef = useRef(false);
 
   const fetchContent = async (field) => {
     try {
@@ -45,21 +46,24 @@ const MainPage = () => {
     }
   };
 
-  const handleMapSelect = (maps) => {
+  const handleMapSelect = React.useCallback((maps) => {
     setSelectedMaps(maps || []);
-  };
+  }, []);
 
-  const handleOpacityChange = (mapId, opacity) => {
+  const handleOpacityChange = React.useCallback((mapId, opacity) => {
     if (updateOpacityFn) updateOpacityFn(mapId, opacity);
-  };
+  }, [updateOpacityFn]);
 
-  const handleNarrativeSelect = (narrative) => {
+  const handleNarrativeSelect = React.useCallback((narrative, options = {}) => {
+    if (options.preserveState) {
+      skipResetRef.current = true;
+    }
     setSelectedNarrative(narrative);
-  };
+  }, []);
 
-  const handleActiveChapterChange = (chapterName) => {
+  const handleActiveChapterChange = React.useCallback((chapterName) => {
     setActiveChapter(chapterName);
-  };
+  }, []);
 
   const handleLinkClick = (field) => {
     if (field === 'share') {
@@ -71,12 +75,12 @@ const MainPage = () => {
           <input type="text" style="width: 100%;" value="${window.location.href}" readonly /></p>
           <p>Or share on social media:</p>
           <p>
-            <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
-              window.location.href
-            )}" target="_blank">Facebook</a> | 
-            <a href="https://twitter.com/intent/tweet?url=${encodeURIComponent(
-              window.location.href
-            )}" target="_blank">Twitter</a>
+          <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+            window.location.href
+          )}" target="_blank">Facebook</a> | 
+          <a href="https://twitter.com/intent/tweet?url=${encodeURIComponent(
+            window.location.href
+          )}" target="_blank">Twitter</a>
           </p>
         `,
       });
@@ -100,7 +104,10 @@ const MainPage = () => {
     const hasNarrative = selectedNarrative !== null;
     
     if (hadNarrative && !hasNarrative && flyToLocationFn) {
-      const resetToDefaultLocation = async () => {
+      if (skipResetRef.current) {
+        skipResetRef.current = false;
+      } else {
+        const resetToDefaultLocation = async () => {
         try {
           const docRef = doc(db, 'settings', 'settingsData');
           const docSnap = await getDoc(docRef);
@@ -109,7 +116,6 @@ const MainPage = () => {
             const { geolocation, mapZoom } = data;
             
             if (geolocation && Array.isArray(geolocation) && geolocation.length === 2) {
-              // Settings store geolocation as [lat, lng], but flyToLocation expects [lng, lat]
               const [lat, lng] = geolocation;
               const zoom = typeof mapZoom === 'number' ? mapZoom : 10;
               flyToLocationFn([lng, lat], zoom);
@@ -120,7 +126,12 @@ const MainPage = () => {
         }
       };
 
-      resetToDefaultLocation();
+        resetToDefaultLocation();
+        setSelectedMaps([]);
+        setActiveChapter(null);
+      }
+    } else if (hadNarrative && hasNarrative && prevNarrativeRef.current?.id !== selectedNarrative.id) {
+      // Switching between narratives: clear state so first chapter initialization triggers
       setSelectedMaps([]);
       setActiveChapter(null);
     }
@@ -134,224 +145,83 @@ const MainPage = () => {
     if (!selectedNarrative || !selectedNarrative.chapters) return;
 
     const preloadNarrativeContent = async () => {
-      console.log('=== PRELOADING NARRATIVE CONTENT ===');
       const chapters = selectedNarrative.chapters;
       const imageUrls = new Set();
       
-      // Helper function to decode HTML entities
       const decodeHtml = (str) => {
         if (!str) return '';
         return String(str)
           .replace(/&lt;/g, '<')
           .replace(/&gt;/g, '>')
-          .replace(/&amp;/g, '&')
           .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'");
+          .replace(/&#39;/g, "'")
+          .replace(/&amp;/g, '&');
       };
 
-      // Extract all image URLs from chapter content and footnotes
-      Object.values(chapters).forEach((chapter) => {
-        if (!chapter.content) return;
-        
-        // Decode HTML entities first
-        const decodedContent = decodeHtml(chapter.content);
-        
-        // Extract img src attributes (handles both single and double quotes)
-        const imgRegex = /<img[^>]+src\s*=\s*["']([^"']+)["']/gi;
-        let match;
-        while ((match = imgRegex.exec(decodedContent)) !== null) {
-          if (match[1]) {
-            imageUrls.add(match[1]);
-          }
+      Object.values(chapters).forEach(chapter => {
+        const content = decodeHtml(chapter.content);
+        const imgMatches = content.match(/<img[^>]+src="([^">]+)"/g);
+        if (imgMatches) {
+          imgMatches.forEach(match => {
+            const src = match.match(/src="([^">]+)"/)[1];
+            if (src) imageUrls.add(src);
+          });
         }
-        
-        // Also extract images from footnote content
-        const footnoteRegex = /<footnote\b[^>]*>([\s\S]*?)<\/footnote\s*>/gi;
-        let footnoteMatch;
-        while ((footnoteMatch = footnoteRegex.exec(decodedContent)) !== null) {
-          const footnoteContent = footnoteMatch[1];
-          const contentMatch = /<content\b[^>]*>([\s\S]*?)<\/content\s*>/i.exec(footnoteContent);
-          if (contentMatch) {
-            const footnoteHtml = decodeHtml(contentMatch[1]);
-            const footnoteImgRegex = /<img[^>]+src\s*=\s*["']([^"']+)["']/gi;
-            let footnoteImgMatch;
-            while ((footnoteImgMatch = footnoteImgRegex.exec(footnoteHtml)) !== null) {
-              if (footnoteImgMatch[1]) {
-                imageUrls.add(footnoteImgMatch[1]);
-              }
-            }
-          }
-        }
-      });
-
-      // Preload all images
-      console.log(`Preloading ${imageUrls.size} images...`);
-      const imagePromises = Array.from(imageUrls).map((url) => {
-        return new Promise((resolve) => {
-          // Skip data URIs and empty URLs
-          if (!url || url.startsWith('data:')) {
-            resolve(url);
-            return;
-          }
-          
-          const img = new Image();
-          img.onload = () => resolve(url);
-          img.onerror = () => {
-            console.warn(`Failed to preload image: ${url}`);
-            resolve(url); // Resolve anyway to not block other images
-          };
-          img.src = url;
-        });
-      });
-      await Promise.all(imagePromises);
-      console.log('All images preloaded');
-
-      // Preload all map data for all chapters
-      const allMapIds = new Set();
-      Object.values(chapters).forEach((chapter) => {
-        if (chapter.maps && Array.isArray(chapter.maps)) {
-          chapter.maps.forEach((mapRef) => {
-            if (mapRef.id) {
-              allMapIds.add(mapRef.id);
-            }
+        if (chapter.maps) {
+          chapter.maps.forEach(map => {
+            if (map.raster_image) imageUrls.add(map.raster_image);
           });
         }
       });
 
-      console.log(`Preloading ${allMapIds.size} maps...`);
-      const mapPromises = Array.from(allMapIds).map(async (mapId) => {
-        try {
-          const snap = await getDoc(doc(db, 'maps', mapId));
-          if (snap.exists()) {
-            return { id: mapId, data: snap.data() };
-          }
-          return null;
-        } catch (e) {
-          console.error(`Error preloading map ${mapId}:`, e);
-          return null;
-        }
+      imageUrls.forEach(url => {
+        const img = new Image();
+        img.src = url;
       });
-      await Promise.all(mapPromises);
-      console.log('All maps preloaded');
-      console.log('=== PRELOADING COMPLETE ===');
     };
 
     preloadNarrativeContent();
   }, [selectedNarrative]);
 
-  // Track loading state when maps are selected/deselected (only for controller maps, not narratives)
-  const prevMapIdsRef = useRef(null);
-  useEffect(() => {
-    if (selectedNarrative) {
-      setIsMapLoading(false);
-      prevMapIdsRef.current = null;
-      return;
-    }
-
-    const newIds = (selectedMaps || []).map((m) => m.id).sort().join(',');
-    const prevIds = prevMapIdsRef.current;
-
-    // Only show loading when the set of map IDs changes (check/uncheck), not on opacity slider changes
-    if (newIds !== prevIds) {
-      prevMapIdsRef.current = newIds;
-      if (selectedMaps && selectedMaps.length > 0) {
-        setIsMapLoading(true);
-        const timer = setTimeout(() => setIsMapLoading(false), 400);
-        return () => clearTimeout(timer);
-      } else {
-        setIsMapLoading(false);
-      }
-    }
-  }, [selectedMaps, selectedNarrative]);
-
-  // If a narrative is selected and we don't yet have an active chapter,
-  // initialize it to the first chapter key so that center/zoom/maps apply immediately.
-  useEffect(() => {
-    if (!selectedNarrative) return;
-    const keys = Object.keys(selectedNarrative.chapters || {});
-    if (!keys.length) return;
-    if (!activeChapter) {
-      setActiveChapter(keys[0]);
-    }
-  }, [selectedNarrative]); // intentionally not depending on activeChapter to avoid loops
-
-  // Whenever the active chapter changes (or narrative changes), load that chapter's maps
-  // and set opacities based on chapter.maps[].opacityVal.
-  useEffect(() => {
-    const loadChapterMaps = async () => {
-      if (!selectedNarrative || !activeChapter) return;
-      const chapter = selectedNarrative.chapters?.[activeChapter];
-      if (!chapter) return;
-
-      // Expecting: chapter.maps -> [{ id, opacityVal }]
-      const mapsList = Array.isArray(chapter.maps) ? chapter.maps : [];
-      if (!mapsList.length) {
-        setSelectedMaps([]);
-        return;
-      }
-
-      const mapped = await Promise.all(
-        mapsList.map(async (m) => {
-          try {
-            const snap = await getDoc(doc(db, 'maps', m.id));
-            if (!snap.exists()) return null;
-            const data = snap.data();
-            return {
-              id: snap.id,
-              ...data,
-              opacity: typeof m.opacityVal === 'number' ? m.opacityVal : 1,
-            };
-          } catch (e) {
-            console.error('Error loading map for chapter:', e);
-            return null;
-          }
-        })
-      );
-
-      setSelectedMaps(mapped.filter(Boolean));
-    };
-
-    loadChapterMaps();
-  }, [selectedNarrative, activeChapter]);
-
   return (
     <div className={styles.App}>
-      {/* Header (Navbar) */}
       <div className={styles.header}>
         <Navbar onLinkClick={handleLinkClick} />
       </div>
-
-      {/* Main Map */}
-      <Map
-        selectedMaps={selectedMaps}
-        mapStyle={mapStyle}
-        selectedNarrative={selectedNarrative}
-        activeChapter={activeChapter}
-        onUpdateOpacity={setUpdateOpacityFn}
-        onFlyToLocation={setFlyToLocationFn}
-        onMapViewChange={(center, zoom) => setMapView({ center, zoom })}
-        isMapLoading={isMapLoading}
-      />
-
-      {/* Left/Right Panels */}
-      <div className={styles.mapController}>
-        <Controller
-          onMapSelect={handleMapSelect}
-          onNarrativeSelect={handleNarrativeSelect}
-          onInfoClick={handleInfoClick}
-          onActiveChapterChange={handleActiveChapterChange}
-          onUpdateOpacity={handleOpacityChange}
-          flyToLocation={flyToLocationFn}
-          mapView={mapView}
-          mapStyle={mapStyle}
-        />
+      
+      <div className={styles.content}>
+        <div className={styles.mapView}>
+          <Map
+            selectedMaps={selectedMaps}
+            mapStyle={mapStyle}
+            selectedNarrative={selectedNarrative}
+            activeChapter={activeChapter}
+            onUpdateOpacity={setUpdateOpacityFn}
+            onFlyToLocation={setFlyToLocationFn}
+            onMapViewChange={setMapView}
+            isMapLoading={isMapLoading}
+          />
+        </div>
+        
+        <div className={styles.mapController}>
+          <Controller
+            onMapSelect={handleMapSelect}
+            onNarrativeSelect={handleNarrativeSelect}
+            onInfoClick={handleInfoClick}
+            onActiveChapterChange={handleActiveChapterChange}
+            activeChapter={activeChapter}
+            onUpdateOpacity={handleOpacityChange}
+            flyToLocation={flyToLocationFn}
+            mapView={mapView}
+            mapStyle={mapStyle}
+          />
+        </div>
       </div>
 
       <div className={styles.basemaps}>
-        <Basemaps onStyleChange={setMapStyle} />
+        <Basemaps onStyleChange={setMapStyle} selectedNarrative={selectedNarrative} />
       </div>
 
-      {/* Reusable Modal - top-right if title === 'Share current view' */}
       <Modal
         isOpen={modalData.isOpen}
         onClose={closeModal}

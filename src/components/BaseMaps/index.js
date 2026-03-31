@@ -1,6 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as maptilersdk from '@maptiler/sdk'; // Import maptilersdk
 import styles from './style.module.css';
+
+// Blank style for a solid white background
+const BLANK_STYLE = {
+    version: 8,
+    name: 'Blank',
+    sources: {},
+    layers: [
+        {
+            id: 'background',
+            type: 'background',
+            paint: { 'background-color': '#ffffff' }
+        }
+    ]
+};
 
 // Define the basemap options in a JSON array
 const basemapOptions = [
@@ -10,13 +24,27 @@ const basemapOptions = [
     { id: 'winter', name: 'Winter', style: maptilersdk.MapStyle.BASIC.WINTER }
 ];
 
-function Basemaps({ onStyleChange }) {
+function Basemaps({ onStyleChange, selectedNarrative }) {
     const [selectedBasemap, setSelectedBasemap] = useState(basemapOptions[0].id); // Default to the first option
     const [isCollapsed, setIsCollapsed] = useState(false); // Track collapse state
 
+    // Automatically collapse when a narrative is selected
+    useEffect(() => {
+        if (selectedNarrative) {
+            setIsCollapsed(true);
+        }
+    }, [selectedNarrative]);
+
     const handleBasemapChange = (option) => {
-        setSelectedBasemap(option.id);
-        onStyleChange(option.style);
+        if (selectedBasemap === option.id) {
+            // Toggle off: go to blank
+            setSelectedBasemap(null);
+            onStyleChange(null);
+        } else {
+            // Toggle on: go to selected
+            setSelectedBasemap(option.id);
+            onStyleChange(option.style);
+        }
     };
 
     const toggleCollapse = () => {

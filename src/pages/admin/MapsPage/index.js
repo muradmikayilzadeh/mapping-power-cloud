@@ -18,6 +18,7 @@ import {
 
 import { db } from '../../../firebase';
 import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import CollapsibleDescription from '../../../components/CollapsibleDescription';
 import styles from './style.module.css';
 
 const MapsPage = () => {
@@ -29,8 +30,39 @@ const MapsPage = () => {
 
   useEffect(() => {
     const fetchMapEntries = async () => {
-      const querySnapshot = await getDocs(collection(db, 'maps'));
-      const maps = querySnapshot.docs.map(d => {
+      const [mapsSnap, erasSnap, groupsSnap] = await Promise.all([
+        getDocs(collection(db, 'maps')),
+        getDocs(collection(db, 'eras')),
+        getDocs(collection(db, 'map_groups')),
+      ]);
+
+      const eras = erasSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const groups = groupsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // For a given map id, find the eras and map groups it belongs to.
+      // A map can be in an era directly, or via a map group that is in an era.
+      const membershipsFor = (mapId) => {
+        // Map groups store their member map ids under `map_ids`.
+        const memberGroups = groups.filter(
+          g => Array.isArray(g.map_ids) && g.map_ids.includes(mapId)
+        );
+        const groupTitles = memberGroups.map(g => g.title || 'Untitled group');
+        const groupIds = memberGroups.map(g => g.id);
+
+        const eraTitles = eras
+          .filter(e =>
+            (Array.isArray(e.maps) && e.maps.includes(mapId)) ||
+            (Array.isArray(e.map_groups) && e.map_groups.some(gid => groupIds.includes(gid)))
+          )
+          .map(e => e.title || 'Untitled era');
+
+        return {
+          eras: Array.from(new Set(eraTitles)),
+          groups: Array.from(new Set(groupTitles)),
+        };
+      };
+
+      const maps = mapsSnap.docs.map(d => {
         const data = d.data();
         return {
           id: d.id,
@@ -43,7 +75,8 @@ const MapsPage = () => {
               ? data.raster_image || ''
               : data.vector_file || '',
           // default visibility: if field absent -> visible (true)
-          public: Object.prototype.hasOwnProperty.call(data, 'public') ? !!data.public : true
+          public: Object.prototype.hasOwnProperty.call(data, 'public') ? !!data.public : true,
+          ...membershipsFor(d.id),
         };
       });
       setMapEntries(maps);
@@ -156,11 +189,23 @@ const MapsPage = () => {
                       {entry.public ? 'Public' : 'Private'}
                     </span>
                   </h2>
-                  <p
-                    dangerouslySetInnerHTML={{
-                      __html: entry.description.slice(0, 140)
-                    }}
-                  />
+                  <div className={styles.membership}>
+                    {(entry.eras?.length || entry.groups?.length) ? (
+                      <>
+                        {entry.eras?.length > 0 && (
+                          <span><strong>Eras:</strong> {entry.eras.join(', ')}</span>
+                        )}
+                        {entry.groups?.length > 0 && (
+                          <span><strong>Map Groups:</strong> {entry.groups.join(', ')}</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className={styles.membershipNone}>
+                        Not currently assigned to any Era or Map Group.
+                      </span>
+                    )}
+                  </div>
+                  <CollapsibleDescription html={entry.description} />
                 </div>
 
                 <div className={styles.itemActions}>

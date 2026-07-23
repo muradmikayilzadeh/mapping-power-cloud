@@ -74,7 +74,8 @@
 .controller .sectionContent{
     flex:7;
     padding:0.75rem;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     min-height: 400px;
     max-height: 600px;
     position: relative;
@@ -163,7 +164,8 @@
 .controller .chapterMaps .mapList{
     display: flex;
     flex-direction: column;
-    margin-left: 1.5rem;
+    margin-left: 1rem;
+    min-width: 0;
 }
 
 .controller .chapterMaps .mapList .map{
@@ -171,28 +173,38 @@
     justify-content: space-between;
     align-items: center;
     flex-direction: row;
+    flex-wrap: wrap; /* let controls drop below the title instead of overflowing */
+    gap: 0.25rem 0.5rem;
     padding:0.3rem;
+    min-width: 0;
 }
 
 .controller .chapterMaps .mapList .map .mapDetails{
     display: flex;
     flex-direction: row;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center; /* Ensure items are centered */
+    flex: 1 1 55%;
+    min-width: 0; /* allow the title to shrink/wrap rather than overflow */
 }
 
 .controller .chapterMaps .mapList .map .mapDetails .mapDetailTitle{
     color: rgb(68,68,68);
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .controller .chapterMaps .mapList .map .mapControls{
     display: flex;
     flex-direction: row;
     align-items: center; /* Ensure items are centered */
+    flex-shrink: 0;
+    margin-left: auto; /* keep controls pinned to the right edge */
 }
 
 .controller .chapterMaps .mapList .map .mapControls .slider{
-    width:6rem;
+    width:5rem;
 }
 
 .controller .chapterMaps .mapList .map .mapControls .mapInfo, .mapMarker{
@@ -439,3 +451,68 @@
     cursor: pointer;
   }
   
+/* Select all / deselect all controls */
+.selectAllBar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0 0.15rem 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid #e2e2e2;
+}
+
+.selectAllBarLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9a9a9a;
+}
+
+.chapterTitleRow {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.chapterTitleRow .chapterTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+/* Compact pill, sized to its text, floated to the right edge. */
+.selectAllBtn {
+  flex: 0 0 auto;
+  width: auto;
+  margin-left: auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid #cfcfcf;
+  border-radius: 999px;
+  color: #555;
+  cursor: pointer;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 4px 10px;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.selectAllBtn:hover {
+  background: #f2f2f2;
+  border-color: #a8a8a8;
+  color: #222;
+}
+
+.selectAllBtn:active {
+  transform: translateY(1px);
+}

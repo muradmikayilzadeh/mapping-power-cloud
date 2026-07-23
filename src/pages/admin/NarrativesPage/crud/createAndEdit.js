@@ -121,6 +121,7 @@ const CreateNarrativePage = () => {
   };
 
   const removeChapter = (index) => {
+    if (!window.confirm('Are you sure you want to remove this chapter?')) return;
     setChapters((prev) => prev.filter((_, i) => i !== index));
   };
 

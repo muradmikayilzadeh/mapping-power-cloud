@@ -121,10 +121,12 @@ const CreateEraPage = () => {
   };
 
   const handleRemoveMap = (mapId) => {
+    if (!window.confirm('Are you sure you want to remove this map from the era?')) return;
     setSelectedMaps(selectedMaps.filter(id => id !== mapId));
   };
 
   const handleRemoveMapGroup = (mapGroupId) => {
+    if (!window.confirm('Are you sure you want to remove this map group from the era?')) return;
     setSelectedMapGroups(selectedMapGroups.filter(id => id !== mapGroupId));
   };
 

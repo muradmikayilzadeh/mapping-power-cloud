@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHome, faMap, faBook, faCog, faEdit, faEye, faEyeSlash, faTimes, faTimeline, faArrowUp, faArrowDown } from '@fortawesome/free-solid-svg-icons';
 import { db } from '../../../firebase';
 import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import CollapsibleDescription from '../../../components/CollapsibleDescription';
 import styles from './style.module.css';
 
 const NarrativesPage = () => {
@@ -287,7 +288,7 @@ const NarrativesPage = () => {
                         {narrative.public ? 'Public' : 'Private'}
                       </span>
                     </h2>
-                    <p>{narrative.description}</p>
+                    <CollapsibleDescription html={narrative.description} />
                   </div>
                   <div className={styles.itemActions}>
                     <button onClick={() => navigate(`/edit-narrative/${narrative.id}`)} title="Edit">

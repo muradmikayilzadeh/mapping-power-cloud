@@ -118,6 +118,66 @@ function Controller({
       return;
     }
 
+    // Vector maps with explicit focus bounds (e.g. copied from a parent map):
+    // frame to those bounds rather than tightly fitting the pins.
+    if (
+      mapDetails.focus_bounds &&
+      Array.isArray(mapDetails.focus_bounds) &&
+      mapDetails.focus_bounds.length === 4
+    ) {
+      const numericBounds = mapDetails.focus_bounds.map((coord) =>
+        coord.split(',').map(Number)
+      );
+      const lngs = numericBounds.map(([lng]) => lng);
+      const lats = numericBounds.map(([, lat]) => lat);
+
+      if (lngs.every((n) => !Number.isNaN(n)) && lats.every((n) => !Number.isNaN(n))) {
+        const sw = [Math.min(...lngs), Math.min(...lats)];
+        const ne = [Math.max(...lngs), Math.max(...lats)];
+        const center = [(sw[0] + ne[0]) / 2, (sw[1] + ne[1]) / 2];
+        flyToLocation(center, { bounds: [sw, ne] });
+        return;
+      }
+    }
+
+    // Vector maps: derive bounds/center from the point coordinates so the
+    // marker button behaves the same as it does for raster maps.
+    if (
+      mapDetails.vector_points &&
+      Array.isArray(mapDetails.vector_points) &&
+      mapDetails.vector_points.length > 0
+    ) {
+      const points = mapDetails.vector_points
+        .map((p) => (p && typeof p.coordinates === 'string'
+          ? p.coordinates.split(',').map(Number)
+          : null))
+        .filter((c) => c && c.length === 2 && !Number.isNaN(c[0]) && !Number.isNaN(c[1]));
+
+      if (points.length === 1) {
+        // Single point: just center on it at a close zoom.
+        flyToLocation(points[0], 16);
+        return;
+      }
+
+      if (points.length > 1) {
+        const lngs = points.map(([lng]) => lng);
+        const lats = points.map(([, lat]) => lat);
+
+        const sw = [Math.min(...lngs), Math.min(...lats)];
+        const ne = [Math.max(...lngs), Math.max(...lats)];
+
+        // Degenerate bounds (all points identical) -> treat as a single point.
+        if (sw[0] === ne[0] && sw[1] === ne[1]) {
+          flyToLocation(sw, 16);
+          return;
+        }
+
+        const center = [(sw[0] + ne[0]) / 2, (sw[1] + ne[1]) / 2];
+        flyToLocation(center, { bounds: [sw, ne] });
+        return;
+      }
+    }
+
     // Fallback: use explicit center if we have one.
     if (mapDetails.center && Array.isArray(mapDetails.center) && mapDetails.center.length === 2) {
       flyToLocation(mapDetails.center);
@@ -161,7 +221,7 @@ function Controller({
               description: era.description,
               // include only maps that are public (default true if field missing)
               maps: maps.filter(Boolean).filter(isPublic),
-              mapGroups: mapGroups.filter(Boolean),
+              mapGroups: mapGroups.filter(Boolean).filter(isPublic),
               indented: era.indented || [],
             };
           })
@@ -251,6 +311,55 @@ function Controller({
       });
     } catch (err) {
       console.error('Error fetching map details:', err);
+    }
+  };
+
+  // Bulk select/deselect helpers (used by "Select all / Deselect all" controls).
+  const applySelection = (nextChecked, nextOrder) => {
+    const selected = nextOrder
+      .map((id) => nextChecked[id])
+      .filter(Boolean)
+      .map((m) => ({ ...m, opacity: (sliderValues[m.id] ?? 100) / 100 }));
+
+    setCheckedMaps(nextChecked);
+    setSelectedMapsOrder(nextOrder);
+    onMapSelect(selected);
+  };
+
+  const selectMaps = (maps) => {
+    const next = { ...checkedMaps };
+    const order = [...selectedMapsOrder];
+    (maps || []).forEach((m) => {
+      if (!m || !m.id) return;
+      next[m.id] = m;
+      if (!order.includes(m.id)) order.push(m.id);
+    });
+    applySelection(next, order);
+  };
+
+  const deselectMaps = (maps) => {
+    const ids = new Set((maps || []).filter(Boolean).map((m) => m.id));
+    const next = { ...checkedMaps };
+    ids.forEach((id) => {
+      next[id] = null;
+    });
+    const order = selectedMapsOrder.filter((id) => !ids.has(id));
+    applySelection(next, order);
+  };
+
+  const allMaps = useMemo(
+    () => chapters.flatMap((c) => c.maps || []),
+    [chapters]
+  );
+
+  const areAllSelected = (maps) =>
+    (maps || []).length > 0 && (maps || []).every((m) => !!checkedMaps[m.id]);
+
+  const toggleSelectAll = (maps) => {
+    if (areAllSelected(maps)) {
+      deselectMaps(maps);
+    } else {
+      selectMaps(maps);
     }
   };
 
@@ -551,13 +660,36 @@ function Controller({
 
       {view === 'maps' && (
         <div className={styles.sectionContent}>
+          {allMaps.length > 0 && (
+            <div className={styles.selectAllBar}>
+              <span className={styles.selectAllBarLabel}>All maps</span>
+              <button
+                type="button"
+                className={styles.selectAllBtn}
+                onClick={() => toggleSelectAll(allMaps)}
+              >
+                {areAllSelected(allMaps) ? 'Deselect all' : 'Select all'}
+              </button>
+            </div>
+          )}
           <div className={styles.chapterList}>
             {chapters.map((chapter, ci) => (
               <div className={styles.chapter} key={ci}>
                 <div className={styles.chapterDetails}>
                   <div className={`${styles.chapterDate} ${styles.grayText}`}>{chapter.date}</div>
-                  <div className={`${styles.chapterTitle} ${styles.leftPaddingMD}`}>
-                    {chapter.title}
+                  <div className={styles.chapterTitleRow}>
+                    <div className={`${styles.chapterTitle} ${styles.leftPaddingMD}`}>
+                      {chapter.title}
+                    </div>
+                    {(chapter.maps || []).length > 0 && (
+                      <button
+                        type="button"
+                        className={styles.selectAllBtn}
+                        onClick={() => toggleSelectAll(chapter.maps)}
+                      >
+                        {areAllSelected(chapter.maps) ? 'Deselect all' : 'Select all'}
+                      </button>
+                    )}
                   </div>
                   <div
                     className={`${styles.chapterDescription} ${styles.grayTextItalic}`}

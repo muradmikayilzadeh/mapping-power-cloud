@@ -302,3 +302,65 @@ border-radius: 5px;
   width: 100%;
 }
 
+
+.fileMeta {
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  background: #f4f6f8;
+  border: 1px solid #e0e4e8;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #333;
+  word-break: break-all;
+}
+
+.fileMeta strong {
+  color: #555;
+}
+
+.membership {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 0.82rem;
+  color: #555;
+  margin: 2px 0 6px;
+}
+
+.membership strong {
+  color: #333;
+}
+
+.membershipNone {
+  font-style: italic;
+  color: #999;
+}
+
+.copyBounds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 12px;
+}
+
+.copyBounds select {
+  max-width: 420px;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.copyBoundsHint {
+  font-size: 0.8rem;
+  color: #777;
+  margin: 2px 0;
+}
+
+.vectorBoundsSection {
+  border: 1px dashed #c7c7c7;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 8px;
+  background: #fafafa;
+}

@@ -32,7 +32,10 @@
 
 .mapController {
   position: fixed;
-  width: 40%;
+  /* Match imaginedsanfrancisco: panel right edge sits ~40% across the
+     viewport. With left:2%, that means ~38% width, scaling with the window. */
+  width: 38%;
+  min-width: 320px;
   height: 85%;
   top: 55%;
   left:2%;

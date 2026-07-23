@@ -61,6 +61,13 @@ export default function Map({
   const mountedIdsRef = useRef(new Set());
   // Cache for fetched maps (ID -> FullMapObject)
   const mapCacheRef = useRef({});
+  // Preloaded pin marker images (must be re-added after every setStyle)
+  const pinImgRef = useRef(null);
+  const pinDirImgRef = useRef(null);
+  // Always-current selected maps, so style-change handlers never see a stale
+  // (empty) closure when re-rendering after a basemap switch.
+  const selectedMapsRef = useRef(selectedMaps);
+  selectedMapsRef.current = selectedMaps;
 
   maptilersdk.config.apiKey = 'llr35dKpffrGaP9ECLL8';
 
@@ -160,6 +167,54 @@ export default function Map({
     fetchInitialSettings();
   }, []);
 
+  // Recenter the map once the saved home location/zoom load from settings.
+  // The map is created synchronously on mount (before the async settings
+  // fetch resolves), so without this it would stay at the default center even
+  // after the admin changes the geolocation in Settings.
+  useEffect(() => {
+    if (!map.current) return;
+    // Don't fight a narrative that is driving the camera.
+    if (selectedNarrative && activeChapter) return;
+    map.current.jumpTo({ center: [location.lng, location.lat], zoom });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location, zoom]);
+
+  // (Re)add the pin marker images to the current style. maptilersdk.setStyle()
+  // wipes all custom images, so this must run again after every basemap switch,
+  // otherwise vector/pin layers render with no icon (i.e. "disappear").
+  const ensurePinImages = () => {
+    if (!map.current) return;
+
+    if (!pinImgRef.current) {
+      const a = new Image();
+      a.src = pin;
+      pinImgRef.current = a;
+    }
+    if (!pinDirImgRef.current) {
+      const b = new Image();
+      b.src = pinDirectional;
+      pinDirImgRef.current = b;
+    }
+
+    const add = (id, imgEl) => {
+      if (!map.current || !imgEl || map.current.hasImage(id)) return;
+      if (imgEl.complete && imgEl.naturalWidth) {
+        try { map.current.addImage(id, imgEl); } catch (e) { /* already added */ }
+      } else {
+        imgEl.onload = () => {
+          if (map.current && !map.current.hasImage(id)) {
+            try { map.current.addImage(id, imgEl); } catch (e) { /* already added */ }
+            // Re-render so symbol layers pick up the newly available icon.
+            if (map.current.isStyleLoaded()) renderMaps(selectedMapsRef.current);
+          }
+        };
+      }
+    };
+
+    add('arrow-icon', pinImgRef.current);
+    add('arrow-icon-directional', pinDirImgRef.current);
+  };
+
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
@@ -183,24 +238,7 @@ export default function Map({
     };
 
     map.current.on('load', () => {
-      if (!map.current.hasImage('arrow-icon')) {
-        const img = new Image();
-        img.src = pin;
-        img.onload = () => {
-          if (!map.current.hasImage('arrow-icon')) {
-            map.current.addImage('arrow-icon', img);
-          }
-        };
-      }
-      if (!map.current.hasImage('arrow-icon-directional')) {
-        const imgDirectional = new Image();
-        imgDirectional.src = pinDirectional;
-        imgDirectional.onload = () => {
-          if (!map.current.hasImage('arrow-icon-directional')) {
-            map.current.addImage('arrow-icon-directional', imgDirectional);
-          }
-        };
-      }
+      ensurePinImages();
 
       if (selectedMaps.length) {
         renderMaps(selectedMaps);
@@ -254,17 +292,78 @@ export default function Map({
         map.current.setLayoutProperty('whiteout-layer', 'visibility', 'none');
       }
       
-      map.current.setStyle(mapStyle);
+      // Preserve our overlay sources/layers across the basemap swap so the
+      // selected maps don't blink out. maplibre's transformStyle merges the
+      // custom entries from the old style into the new one during setStyle.
+      const isOverlaySource = (sid) =>
+        sid.startsWith('aerial-source-') ||
+        sid.startsWith('vector-source-') ||
+        sid === 'whiteout-source';
+      const isOverlayLayer = (lid) =>
+        lid.startsWith('overlay-') ||
+        lid.startsWith('vector-layer-') ||
+        lid === 'whiteout-layer';
 
-      const onStyleLoad = () => {
-        if (!map.current) return;
-        renderMaps(selectedMaps);
+      try {
+        map.current.setStyle(mapStyle, {
+          transformStyle: (previous, next) => {
+            if (!previous) return next;
+            const sources = { ...next.sources };
+            Object.keys(previous.sources || {}).forEach((sid) => {
+              if (isOverlaySource(sid)) sources[sid] = previous.sources[sid];
+            });
+            const carriedLayers = (previous.layers || []).filter((l) => isOverlayLayer(l.id));
+            return { ...next, sources, layers: [...(next.layers || []), ...carriedLayers] };
+          },
+        });
+      } catch (e) {
+        // Older SDKs may not support transformStyle; fall back to a plain swap
+        // (the re-render below restores the overlays).
+        map.current.setStyle(mapStyle);
+      }
+
+      // setStyle() wipes our custom images (and, on the fallback path, our
+      // sources/layers). Re-add the pin
+      // images and re-render the selected maps once the NEW style has loaded.
+      // maptiler-sdk does not reliably emit 'style.load'/'idle' for us here, so
+      // instead of trusting a single event we poll isStyleLoaded() and also
+      // listen to the events as a fast path. renderMaps/ensurePinImages are
+      // idempotent, so any extra invocations are harmless.
+      let cancelled = false;
+      let timer = null;
+
+      const applyOverlays = () => {
+        if (cancelled || !map.current) return;
+        ensurePinImages();
+        renderMaps(selectedMapsRef.current);
       };
 
-      map.current.on('style.load', onStyleLoad);
+      const onStyleReady = () => {
+        if (cancelled) return;
+        applyOverlays();
+      };
+
+      let attempts = 0;
+      const poll = () => {
+        if (cancelled || !map.current) return;
+        attempts += 1;
+        if (map.current.isStyleLoaded()) {
+          applyOverlays();
+        } else if (attempts < 80) {
+          timer = setTimeout(poll, 100); // up to ~8s
+        }
+      };
+
+      map.current.once('style.load', onStyleReady);
+      map.current.once('idle', onStyleReady);
+      timer = setTimeout(poll, 60);
+
       return () => {
+        cancelled = true;
+        if (timer) clearTimeout(timer);
         if (map.current) {
-          map.current.off('style.load', onStyleLoad);
+          map.current.off('style.load', onStyleReady);
+          map.current.off('idle', onStyleReady);
         }
       };
     }

@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHome, faMap, faBook, faCog, faEdit, faTimes, faTimeline, faArrowUp, faArrowDown, faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
 import { db } from '../../../firebase';
 import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import CollapsibleDescription from '../../../components/CollapsibleDescription';
 import styles from './style.module.css';
 
 const ErasPage = () => {
@@ -234,7 +235,7 @@ const ErasPage = () => {
                         {era.public ? 'Public' : 'Private'}
                       </span>
                     </h2>
-                    <p dangerouslySetInnerHTML={{ __html: era.description }} />
+                    <CollapsibleDescription html={era.description} />
                   </div>
                   <div className={styles.itemActions}>
                     <button onClick={() => navigate(`/edit-era/${era.id}`)} title="Edit"><FontAwesomeIcon icon={faEdit} /></button>

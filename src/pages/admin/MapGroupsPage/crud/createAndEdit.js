@@ -81,6 +81,7 @@ const CreateMapGroupPage = () => {
   };
 
   const handleRemoveMap = (mapId) => {
+    if (!window.confirm('Are you sure you want to remove this map from the group?')) return;
     setSelectedMaps(selectedMaps.filter(id => id !== mapId));
   };
 

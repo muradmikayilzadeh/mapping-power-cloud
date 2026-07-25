@@ -3,6 +3,9 @@ import { useEffect, useRef } from 'react';
 import { doc, getDoc } from 'firebase/firestore'; // Firestore imports
 import { db } from './firebase'; // Adjust the path as per your setup
 
+// Modern admin panel theme (scoped under .admin-shell, no effect on public pages)
+import './pages/admin/admin-theme.css';
+
 // Components
 import Navbar from './components/Navbar';
 import Controller from './components/Controller';

@@ -52,7 +52,7 @@ const LoginPage = () => {
     };
 
     return (
-        <div className={styles.wrapper}>
+        <div className={styles.wrapper + " admin-shell"}>
             <div className={styles.coverPhotoContainer}></div>
             <div className={styles.loginContainer}>
                 <form>

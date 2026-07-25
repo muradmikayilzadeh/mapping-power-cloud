@@ -1,0 +1,568 @@
+/* =====================================================================
+   Modern admin theme.
+   Scoped entirely under `.admin-shell` so it never touches the public
+   map experience. Targets the per-module (CSS-module) structural classes
+   via [class*="_name__"] substring selectors — CRA embeds the local name
+   in every generated class (e.g. style_itemEntry__6huWO), so these are
+   stable across dev and production builds.
+   Only visuals change here; markup and workflows are untouched.
+   ===================================================================== */
+
+.admin-shell {
+  --a-bg: #f4f6fa;
+  --a-surface: #ffffff;
+  --a-surface-2: #f8fafc;
+  --a-border: #e6e9ef;
+  --a-border-strong: #d4d9e2;
+  --a-text: #1c2430;
+  --a-text-muted: #6b7280;
+  --a-text-faint: #98a1ad;
+  --a-accent: #4f46e5;
+  --a-accent-hover: #4338ca;
+  --a-accent-soft: #eef0fe;
+  --a-danger: #e5484d;
+  --a-danger-hover: #cf3438;
+  --a-success: #16a34a;
+  --a-radius: 14px;
+  --a-radius-sm: 9px;
+  --a-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --a-shadow-md: 0 6px 16px rgba(16, 24, 40, 0.08), 0 2px 6px rgba(16, 24, 40, 0.05);
+  --a-shadow-lg: 0 14px 40px rgba(16, 24, 40, 0.12);
+  --a-sidebar-bg: #0f1522;
+  --a-sidebar-bg-2: #141b2b;
+  --a-sidebar-text: #aeb7c6;
+  --a-sidebar-text-active: #ffffff;
+
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--a-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Kill the old aqua root background (double class raises specificity). */
+.admin-shell.admin-shell {
+  background: var(--a-bg);
+}
+
+/* ---------------------------------------------------------------- Sidebar */
+.admin-shell [class*="_sidebar__"] {
+  width: 244px;
+  min-width: 244px;
+  background: linear-gradient(180deg, var(--a-sidebar-bg-2) 0%, var(--a-sidebar-bg) 100%);
+  color: var(--a-sidebar-text);
+  padding: 22px 14px;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+.admin-shell [class*="_sidebarMenu__"] {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Small brand eyebrow above the nav */
+.admin-shell [class*="_sidebarMenu__"]::before {
+  content: "Admin";
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.34);
+  padding: 4px 12px 14px;
+}
+
+.admin-shell [class*="_sidebarMenu__"] li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--a-sidebar-text);
+  transition: background 0.16s ease, color 0.16s ease, transform 0.05s ease;
+}
+
+.admin-shell [class*="_sidebarMenu__"] li svg {
+  width: 16px;
+  height: 16px;
+  opacity: 0.85;
+  transition: color 0.16s ease, opacity 0.16s ease;
+}
+
+.admin-shell [class*="_sidebarMenu__"] li span {
+  margin-left: 0;
+}
+
+.admin-shell [class*="_sidebarMenu__"] li:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--a-sidebar-text-active);
+}
+
+.admin-shell [class*="_sidebarMenu__"] li:hover svg {
+  opacity: 1;
+  color: #a5b4fc;
+}
+
+.admin-shell [class*="_sidebarMenu__"] li:active {
+  transform: translateY(1px);
+}
+
+/* ---------------------------------------------------------------- Content */
+.admin-shell [class*="_content__"] {
+  background: var(--a-bg);
+  padding: 30px 34px;
+  overflow-y: auto;
+  height: 100vh;
+}
+
+.admin-shell [class*="_content__"] > h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--a-text);
+  margin: 0 0 4px;
+}
+
+/* ------------------------------------------------------------- Header bar */
+.admin-shell [class*="_headBar__"] {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--a-border);
+}
+
+.admin-shell [class*="_headBar__"] h1 {
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.admin-shell [class*="_headBar__"] button {
+  width: auto;
+  min-width: 0;
+  padding: 9px 18px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--a-accent);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-right: 10px;
+  box-shadow: var(--a-shadow-sm);
+  transition: background 0.16s ease, transform 0.05s ease, box-shadow 0.16s ease;
+}
+
+.admin-shell [class*="_headBar__"] button:hover {
+  background: var(--a-accent-hover);
+  box-shadow: var(--a-shadow-md);
+}
+
+.admin-shell [class*="_headBar__"] button:active {
+  transform: translateY(1px);
+}
+
+/* Secondary header buttons (any that aren't the first / primary CTA) */
+.admin-shell [class*="_headBar__"] > div button:not(:last-child) {
+  background: var(--a-surface);
+  color: var(--a-text);
+  border-color: var(--a-border-strong);
+}
+
+.admin-shell [class*="_headBar__"] > div button:not(:last-child):hover {
+  background: var(--a-surface-2);
+  border-color: var(--a-text-faint);
+}
+
+/* ------------------------------------------------------------- Search bar */
+.admin-shell [class*="_searchBar__"] {
+  display: flex;
+  margin-bottom: 22px;
+}
+
+.admin-shell [class*="_searchBar__"] input {
+  flex: 1;
+  padding: 11px 14px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 11px;
+  background: var(--a-surface);
+  font-size: 0.92rem;
+  color: var(--a-text);
+  box-shadow: var(--a-shadow-sm);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.admin-shell [class*="_searchBar__"] input::placeholder {
+  color: var(--a-text-faint);
+}
+
+.admin-shell [class*="_searchBar__"] input:focus {
+  outline: none;
+  border-color: var(--a-accent);
+  box-shadow: 0 0 0 3px var(--a-accent-soft);
+}
+
+/* --------------------------------------------------------------- Item list */
+.admin-shell [class*="_itemList__"] {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-shell [class*="_itemEntry__"] {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  margin-bottom: 0;
+  background: var(--a-surface);
+  box-shadow: var(--a-shadow-sm);
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+.admin-shell [class*="_itemEntry__"]:hover {
+  box-shadow: var(--a-shadow-md);
+  transform: translateY(-2px);
+  border-color: var(--a-border-strong);
+}
+
+.admin-shell [class*="_itemDetails__"] h2 {
+  font-size: 1.08rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--a-text);
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.admin-shell [class*="_itemDetails__"] p {
+  color: var(--a-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.admin-shell [class*="_itemSnippet__"] img {
+  border-radius: 10px;
+  border: 1px solid var(--a-border);
+}
+
+/* Item action icon buttons */
+.admin-shell [class*="_itemActions__"] {
+  display: flex;
+  gap: 8px;
+  margin-right: 0;
+}
+
+.admin-shell [class*="_itemActions__"] button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  margin-left: 0;
+  padding: 0;
+  border: 1px solid var(--a-border);
+  border-radius: 10px;
+  background: var(--a-surface-2);
+  color: var(--a-text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease, transform 0.05s ease;
+}
+
+.admin-shell [class*="_itemActions__"] button:hover {
+  background: var(--a-accent-soft);
+  color: var(--a-accent);
+  border-color: var(--a-accent);
+}
+
+.admin-shell [class*="_itemActions__"] button:active {
+  transform: translateY(1px);
+}
+
+/* Last action = delete → red affordance on hover */
+.admin-shell [class*="_itemActions__"] button:last-child:hover {
+  background: rgba(229, 72, 77, 0.1);
+  color: var(--a-danger);
+  border-color: var(--a-danger);
+}
+
+/* ------------------------------------------------- Forms (create / edit) */
+.admin-shell form {
+  margin-left: 0;
+}
+
+.admin-shell [class*="_formContainer__"] {
+  background: var(--a-surface);
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  padding: 26px;
+  box-shadow: var(--a-shadow-sm);
+  max-width: 960px;
+}
+
+.admin-shell [class*="_formGroup__"] {
+  margin-right: 0;
+}
+
+.admin-shell [class*="_formGroup__"] > label,
+.admin-shell [class*="_vectorForm__"] > label,
+.admin-shell [class*="_rasterForm__"] > label {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--a-text);
+  margin-bottom: 6px;
+}
+
+.admin-shell input[type="text"],
+.admin-shell input[type="number"],
+.admin-shell input[type="email"],
+.admin-shell input[type="password"],
+.admin-shell input[type="search"],
+.admin-shell select:not([class*="rsw-"]),
+.admin-shell textarea:not([class*="rsw-"]) {
+  padding: 10px 12px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 10px;
+  background: var(--a-surface);
+  font-size: 0.92rem;
+  color: var(--a-text);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.admin-shell [class*="_formGroup__"] > input[type="text"] {
+  width: 100%;
+  max-width: 520px;
+}
+
+.admin-shell input:not([class*="rsw-"]):focus,
+.admin-shell select:not([class*="rsw-"]):focus,
+.admin-shell textarea:not([class*="rsw-"]):focus {
+  outline: none;
+  border-color: var(--a-accent);
+  box-shadow: 0 0 0 3px var(--a-accent-soft);
+}
+
+/* Rich text editor (react-simple-wysiwyg): intentionally NOT themed.
+   It keeps its own library styling — the admin theme must never touch the
+   editor container, its toolbar buttons (.rsw-btn), dropdown (.rsw-dd) or
+   HTML source area (.rsw-html). Those elements are excluded from all the
+   generic input/select/textarea/button rules below via :not([class*="rsw-"]). */
+
+/* Form action buttons: neutral by default, accent for the submit CTA. */
+.admin-shell [class*="_formContainer__"] button:not([class*="rsw-"]),
+.admin-shell [class*="_formGroup__"] button:not([class*="rsw-"]) {
+  padding: 9px 16px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 10px;
+  background: var(--a-surface);
+  color: var(--a-text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-right: 8px;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.05s ease;
+}
+
+.admin-shell [class*="_formContainer__"] button:not([class*="rsw-"]):hover,
+.admin-shell [class*="_formGroup__"] button:not([class*="rsw-"]):hover {
+  background: var(--a-surface-2);
+  border-color: var(--a-text-faint);
+}
+
+.admin-shell [class*="_formContainer__"] button[type="submit"]:not([class*="rsw-"]),
+.admin-shell [class*="_formGroup__"] button[type="submit"]:not([class*="rsw-"]) {
+  background: var(--a-accent);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--a-shadow-sm);
+}
+
+.admin-shell [class*="_formContainer__"] button[type="submit"]:not([class*="rsw-"]):hover,
+.admin-shell [class*="_formGroup__"] button[type="submit"]:not([class*="rsw-"]):hover {
+  background: var(--a-accent-hover);
+}
+
+.admin-shell [class*="_formContainer__"] button:not([class*="rsw-"]):active,
+.admin-shell [class*="_formGroup__"] button:not([class*="rsw-"]):active {
+  transform: translateY(1px);
+}
+
+/* Map-type option tiles (create map) */
+.admin-shell [class*="_mapOptionsArea__"] [class*="_option__"] {
+  border-radius: var(--a-radius);
+  padding: 2rem;
+  transition: background 0.16s ease, transform 0.1s ease, box-shadow 0.16s ease;
+}
+
+.admin-shell [class*="_mapOptionsArea__"] [class*="_option__"]:hover {
+  box-shadow: var(--a-shadow-md);
+  transform: translateY(-2px);
+}
+
+/* Add / remove buttons inside map-group & era editors */
+.admin-shell [class*="_addButton__"] {
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--a-accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.admin-shell [class*="_addButton__"]:hover {
+  background: var(--a-accent-hover);
+}
+
+.admin-shell [class*="_removeButton__"] {
+  padding: 6px 14px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 8px;
+  background: var(--a-surface);
+  color: var(--a-danger);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.admin-shell [class*="_removeButton__"]:hover {
+  background: rgba(229, 72, 77, 0.08);
+  border-color: var(--a-danger);
+}
+
+/* ------------------------------------------------------ Settings sections */
+.admin-shell [class*="_section__"] {
+  background: var(--a-surface);
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  padding: 20px 22px;
+  margin-bottom: 18px;
+  box-shadow: var(--a-shadow-sm);
+  max-width: 820px;
+}
+
+.admin-shell [class*="_section__"] h2 {
+  font-size: 1.02rem;
+  font-weight: 650;
+  margin: 0 0 14px;
+  color: var(--a-text);
+}
+
+/* --------------------------------------------------------- Dashboard home */
+.admin-shell [class*="_cards__"] {
+  display: flex;
+  gap: 18px;
+  margin: 24px 0;
+  flex-wrap: wrap;
+}
+
+.admin-shell [class*="_card__"] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  padding: 22px;
+  background: var(--a-surface);
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  box-shadow: var(--a-shadow-sm);
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.admin-shell [class*="_card__"]:hover {
+  box-shadow: var(--a-shadow-md);
+  transform: translateY(-2px);
+}
+
+.admin-shell [class*="_card__"] svg {
+  color: var(--a-accent);
+  font-size: 1.4rem;
+}
+
+.admin-shell [class*="_card__"] span:first-of-type {
+  color: var(--a-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-shell [class*="_card__"] span:last-of-type {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--a-text);
+}
+
+.admin-shell [class*="_graphs__"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.admin-shell [class*="_graphPlaceholder__"] {
+  background: var(--a-surface);
+  border: 1px dashed var(--a-border-strong);
+  border-radius: var(--a-radius);
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--a-text-faint);
+  font-size: 0.9rem;
+}
+
+/* --------------------------------------------------------------- Login page */
+.admin-shell [class*="_loginContainer__"] {
+  box-shadow: var(--a-shadow-lg);
+  border-radius: var(--a-radius);
+}
+
+.admin-shell [class*="_loginContainer__"] button {
+  background: var(--a-accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.admin-shell [class*="_loginContainer__"] button:hover {
+  background: var(--a-accent-hover);
+}
+
+/* ---------------------------------------------------------- Nice scrollbars */
+.admin-shell [class*="_content__"]::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.admin-shell [class*="_content__"]::-webkit-scrollbar-thumb {
+  background: #d4d9e2;
+  border-radius: 8px;
+  border: 2px solid var(--a-bg);
+}
+
+.admin-shell [class*="_content__"]::-webkit-scrollbar-thumb:hover {
+  background: #b8bfcb;
+}

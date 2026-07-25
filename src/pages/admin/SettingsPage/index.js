@@ -127,7 +127,7 @@ const SettingsPage = () => {
   };
 
   return (
-    <div className={styles.dashboard}>
+    <div className={styles.dashboard + " admin-shell"}>
       <div className={styles.sidebar}>
         <ul className={styles.sidebarMenu}>
           <li onClick={() => navigate('/dashboard')}><FontAwesomeIcon icon={faHome} /><span>Home</span></li>

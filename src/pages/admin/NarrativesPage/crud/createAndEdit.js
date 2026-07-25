@@ -260,7 +260,7 @@ const CreateNarrativePage = () => {
   if (loading) return <div>Loading...</div>;
 
   return (
-    <div className={styles.dashboard}>
+    <div className={styles.dashboard + " admin-shell"}>
       <div className={styles.sidebar}>
         <ul className={styles.sidebarMenu}>
           <li onClick={() => navigate('/dashboard')}>

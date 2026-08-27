@@ -9,7 +9,10 @@ import Map from '../../components/Map';
 import Modal from '../../components/Modal';
 import styles from './style.module.css';
 
+const PREVIEW_TOKEN_STORAGE_KEY = 'sitePreviewToken';
+
 const MainPage = () => {
+  const [siteAccess, setSiteAccess] = useState({ loading: true, allowed: true, preview: false });
   const [modalData, setModalData] = useState({ isOpen: false, title: '', content: '' });
   const [selectedMaps, setSelectedMaps] = useState([]);
   const [mapStyle, setMapStyle] = useState(maptilersdk.MapStyle.BASIC.LIGHT);
@@ -26,6 +29,43 @@ const MainPage = () => {
   // Track previous narrative to detect exit
   const prevNarrativeRef = useRef(null);
   const skipResetRef = useRef(false);
+
+  // Gate the public site behind the "Make Site Live / Hide Site" sandbox
+  // toggle in Settings. While hidden, only people who open the preview link
+  // (or already unlocked it on this device) can see the site.
+  useEffect(() => {
+    const checkSiteAccess = async () => {
+      try {
+        const docRef = doc(db, 'settings', 'settingsData');
+        const docSnap = await getDoc(docRef);
+        const data = docSnap.exists() ? docSnap.data() : {};
+        const isLive = data.siteLive !== false;
+
+        if (isLive) {
+          setSiteAccess({ loading: false, allowed: true, preview: false });
+          return;
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const previewParam = params.get('preview');
+        const storedToken = localStorage.getItem(PREVIEW_TOKEN_STORAGE_KEY);
+        const validToken = data.previewToken;
+        const hasAccess = !!validToken && (previewParam === validToken || storedToken === validToken);
+
+        if (hasAccess) {
+          localStorage.setItem(PREVIEW_TOKEN_STORAGE_KEY, validToken);
+        }
+
+        setSiteAccess({ loading: false, allowed: hasAccess, preview: hasAccess });
+      } catch (e) {
+        console.error('Error checking site visibility:', e);
+        // Fail open so a transient Firestore hiccup doesn't take the live site down.
+        setSiteAccess({ loading: false, allowed: true, preview: false });
+      }
+    };
+
+    checkSiteAccess();
+  }, []);
 
   const fetchContent = async (field) => {
     try {
@@ -89,12 +129,12 @@ const MainPage = () => {
     }
   };
 
-  const handleInfoClick = (description) => {
-    setModalData({ isOpen: true, title: 'Map Information', content: description });
+  const handleInfoClick = (description, footnotes) => {
+    setModalData({ isOpen: true, title: 'Map Information', content: description, footnotes: footnotes || '' });
   };
 
   const closeModal = () => {
-    setModalData({ isOpen: false, title: '', content: '' });
+    setModalData({ isOpen: false, title: '', content: '', footnotes: '' });
   };
 
   // When exiting a narrative, reset map to default location from settings
@@ -183,12 +223,51 @@ const MainPage = () => {
     preloadNarrativeContent();
   }, [selectedNarrative]);
 
+  if (siteAccess.loading) {
+    return <div className={styles.App} />;
+  }
+
+  if (!siteAccess.allowed) {
+    return (
+      <div
+        className={styles.App}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          textAlign: 'center',
+          padding: '24px',
+        }}
+      >
+        <div>
+          <h1>This site isn't available yet</h1>
+          <p>Please check back later.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.App}>
+      {siteAccess.preview && (
+        <div
+          style={{
+            background: '#b91c1c',
+            color: '#fff',
+            textAlign: 'center',
+            padding: '6px 12px',
+            fontSize: '13px',
+            fontWeight: 500,
+          }}
+        >
+          Preview mode — this site is hidden from the public
+        </div>
+      )}
       <div className={styles.header}>
         <Navbar onLinkClick={handleLinkClick} />
       </div>
-      
+
       <div className={styles.content}>
         <div className={styles.mapView}>
           <Map
@@ -227,6 +306,7 @@ const MainPage = () => {
         onClose={closeModal}
         title={modalData.title}
         content={modalData.content}
+        footnotes={modalData.footnotes}
         type={modalData.title === 'Share current view' ? 'share' : 'default'}
       />
     </div>

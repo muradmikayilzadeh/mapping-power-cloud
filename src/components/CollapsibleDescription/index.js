@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import styles from './style.module.css';
+import { openLinksInNewTab } from '../../utils/linkify';
 
 /**
  * Renders an entry description that is collapsed to a single line by default
@@ -19,7 +20,7 @@ export default function CollapsibleDescription({ html, className }) {
     <div className={`${styles.wrapper} ${className || ''}`}>
       <div
         className={expanded ? styles.expanded : styles.collapsed}
-        dangerouslySetInnerHTML={{ __html: text }}
+        dangerouslySetInnerHTML={{ __html: openLinksInNewTab(text) }}
       />
       <button
         type="button"

@@ -1,12 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Editor from 'react-simple-wysiwyg';
-import { faHome, faMap, faBook, faCog, faTimeline, faLocationDot, faImage } from '@fortawesome/free-solid-svg-icons';
+import RichTextEditor from '../../../../components/RichTextEditor';
+import { faHome, faMap, faBook, faCog, faTimeline, faLocationDot, faImage, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { db, storage } from '../../../../firebase';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, getMetadata } from 'firebase/storage';
+import { validateCoordPairs } from '../../../../utils/coordinates';
+import { isVideoFile } from '../../../../utils/media';
 import styles from '../style.module.css';
+
+// Above this, a file is large enough that it may load slowly or strain
+// mobile visitors — not a hard limit, just a heads-up. Videos are naturally
+// bigger than images, so they get a much more generous threshold.
+const LARGE_RASTER_WARNING_BYTES = 15 * 1024 * 1024;
+const LARGE_FILE_WARNING_BYTES = 5 * 1024 * 1024;
+const LARGE_VIDEO_WARNING_BYTES = 50 * 1024 * 1024;
 
 const formatBytes = (bytes) => {
   if (bytes === null || bytes === undefined || Number.isNaN(bytes)) return '—';
@@ -34,7 +44,7 @@ const fileNameFromUrl = (url) => {
  * Firebase Storage download URL (already uploaded), in which case metadata is
  * fetched from Storage.
  */
-function FileMeta({ file }) {
+function FileMeta({ file, warnAboveBytes }) {
   const [meta, setMeta] = useState(null);
 
   useEffect(() => {
@@ -71,6 +81,11 @@ function FileMeta({ file }) {
 
   if (!file || !meta) return null;
 
+  const effectiveThreshold = isVideoFile(meta.name)
+    ? Math.max(warnAboveBytes || 0, LARGE_VIDEO_WARNING_BYTES)
+    : warnAboveBytes;
+  const isLarge = typeof effectiveThreshold === 'number' && typeof meta.size === 'number' && meta.size > effectiveThreshold;
+
   return (
     <div className={styles.fileMeta}>
       <div><strong>File name:</strong> {meta.name}</div>
@@ -83,6 +98,26 @@ function FileMeta({ file }) {
             ? new Date(meta.uploaded).toLocaleString()
             : '—'}
       </div>
+      {isLarge && (
+        <div style={{ color: '#a15c00', marginTop: 4 }}>
+          ⚠ This file is {formatBytes(meta.size)} — that's large enough that it may load slowly or
+          cause problems for some visitors. Consider compressing it if possible.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CoordWarnings({ validation }) {
+  if (!validation || (validation.errors.length === 0 && validation.warnings.length === 0)) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      {validation.errors.map((m, i) => (
+        <div key={`e${i}`} style={{ color: '#b71c1c', fontSize: '13px' }}>⚠ {m}</div>
+      ))}
+      {validation.warnings.map((m, i) => (
+        <div key={`w${i}`} style={{ color: '#a15c00', fontSize: '13px' }}>⚠ {m}</div>
+      ))}
     </div>
   );
 }
@@ -104,6 +139,27 @@ const CreateMapPage = () => {
   const [vectorPoints, setVectorPoints] = useState([]);
   // Other maps that already have bounds, offered in the "copy bounds from…" picker.
   const [boundsSources, setBoundsSources] = useState([]);
+  // The site's configured default location, used as a sanity check for
+  // coordinates that are technically valid but suspiciously far away.
+  const [homeLocation, setHomeLocation] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const fetchHomeLocation = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'settingsData'));
+        if (snap.exists()) {
+          const { geolocation } = snap.data();
+          if (Array.isArray(geolocation) && geolocation.length === 2) {
+            setHomeLocation({ lat: geolocation[0], lng: geolocation[1] });
+          }
+        }
+      } catch (err) {
+        console.error('Error loading default location for coordinate checks:', err);
+      }
+    };
+    fetchHomeLocation();
+  }, []);
 
   useEffect(() => {
     const fetchMapData = async () => {
@@ -183,9 +239,47 @@ const CreateMapPage = () => {
     });
   };
 
+  // Coordinates are stored as "lng,lat" strings; validate against basic
+  // range checks plus a distance-from-home-location sanity check so a
+  // nonsense pin (or a reversed lat/lng paste from Google Maps) gets
+  // flagged instead of silently producing an invisible map.
+  const boundsCoordPairs = useMemo(() => ([
+    { label: 'West, North corner', value: coordinates.x1y1 },
+    { label: 'East, North corner', value: coordinates.x2y2 },
+    { label: 'East, South corner', value: coordinates.x3y3 },
+    { label: 'West, South corner', value: coordinates.x4y4 },
+  ]), [coordinates]);
+
+  const boundsValidation = useMemo(
+    () => validateCoordPairs(boundsCoordPairs, homeLocation),
+    [boundsCoordPairs, homeLocation]
+  );
+
+  const pointCoordPairs = useMemo(
+    () => vectorPoints.map((p, i) => ({ label: `Point ${i + 1}`, value: p.coordinates })),
+    [vectorPoints]
+  );
+
+  const pointsValidation = useMemo(
+    () => validateCoordPairs(pointCoordPairs, homeLocation),
+    [pointCoordPairs, homeLocation]
+  );
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-  
+
+    const coordErrors = [
+      ...boundsValidation.errors,
+      ...(selectedOption === 'vector' ? pointsValidation.errors : []),
+    ];
+    if (coordErrors.length > 0) {
+      const proceed = window.confirm(
+        `These coordinates don't look valid:\n\n${coordErrors.join('\n')}\n\n` +
+        `The map or pin may not show up (and "zoom to map" won't work) if you save anyway. Save anyway?`
+      );
+      if (!proceed) return;
+    }
+
     let docData = {
       title,
       years,
@@ -194,7 +288,8 @@ const CreateMapPage = () => {
       map_type: selectedOption,
       rotation,
     };
-  
+
+    setIsSubmitting(true);
     try {
       let mapId = id; // Use the existing ID if editing; create a new one later for new maps
   
@@ -238,7 +333,10 @@ const CreateMapPage = () => {
         const vectorInfo = await Promise.all(
           vectorPoints.map(async (point, index) => {
             if (point.image && typeof point.image !== 'string') {
-              const imageRef = ref(storage, `maps/vector/${mapId}/point_${index + 1}`);
+              // Keep the original file name (and its extension) in the storage
+              // path — without it, there's no way to tell a video upload from
+              // an image afterward, so it always rendered (and failed) as an <img>.
+              const imageRef = ref(storage, `maps/vector/${mapId}/point_${index + 1}_${point.image.name}`);
               await uploadBytes(imageRef, point.image);
               const imageUrl = await getDownloadURL(imageRef);
               return { ...point, image: imageUrl };
@@ -262,6 +360,8 @@ const CreateMapPage = () => {
     } catch (error) {
       console.error('Error creating/updating map: ', error);
       alert('Error creating/updating map. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
   
@@ -429,7 +529,7 @@ const CreateMapPage = () => {
               <br />
               
               <label htmlFor="description">Description</label>
-              <Editor className={styles.richTextEditor} value={html} onChange={onChange} />
+              <RichTextEditor className={styles.richTextEditor} value={html} onChange={onChange} />
 
               <br />
               
@@ -463,7 +563,7 @@ const CreateMapPage = () => {
                   <div className={styles.vectorForm}>
                     <label htmlFor="vectorFile">Vector File (optional)</label>
                     <input type="file" name="vectorFile" id="vectorFile" onChange={(e) => setVectorFile(e.target.files[0])} />
-                    <FileMeta file={vectorFile} />
+                    <FileMeta file={vectorFile} warnAboveBytes={LARGE_FILE_WARNING_BYTES} />
                     {typeof vectorFile === 'string' && (
                       <div>
                         <a href={vectorFile} target="_blank" rel="noopener noreferrer">View current vector file</a>
@@ -477,13 +577,43 @@ const CreateMapPage = () => {
                       <div key={index} className={styles.vectorPoint}>
                         <fieldset style={{ border: "1px solid black", padding: "10px", marginBottom: "10px" }}>
                           <legend>Point {index + 1}</legend>
-                          <input type="text" value={point.coordinates} onChange={(e) => handleVectorPointChange(index, 'coordinates', e.target.value)} placeholder='Coordinates (x, y)' style={{ marginBottom: '10px', width: '100%' }} />
+                          <input type="text" value={point.coordinates} onChange={(e) => handleVectorPointChange(index, 'coordinates', e.target.value)} placeholder='Coordinates (longitude,latitude)' style={{ marginBottom: '4px', width: '100%' }} />
+                          {pointCoordPairs[index] && (() => {
+                            const result = validateCoordPairs([pointCoordPairs[index]], homeLocation);
+                            const messages = [...result.errors, ...result.warnings];
+                            if (messages.length === 0) return null;
+                            return (
+                              <div style={{ color: result.errors.length ? '#b71c1c' : '#a15c00', fontSize: '12px', marginBottom: '10px' }}>
+                                {messages.map((m, i) => <div key={i}>⚠ {m}</div>)}
+                              </div>
+                            );
+                          })()}
 
-                          <label>Bearing</label>
-                          <div style={{width:"100%"}}>
-                            <input type="number" value={point.bearing} onChange={(e) => handleVectorPointChange(index, 'bearing', e.target.value)} placeholder='Bearing (in degrees 0-360)' style={{ marginBottom: '10px', width: '100%' }} className={`${styles.fullWidth}`} />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '10px' }}>
+                            <label htmlFor={`isDirectional-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                              <input
+                                type="checkbox"
+                                id={`isDirectional-${index}`}
+                                checked={point.is_directional}
+                                onChange={(e) => handleDirectionalChange(index, e.target.checked)}
+                              />
+                              Is Directional
+                            </label>
+                            {point.is_directional && (
+                              <label htmlFor={`bearing-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 0, flex: 1 }}>
+                                Bearing
+                                <input
+                                  type="number"
+                                  id={`bearing-${index}`}
+                                  value={point.bearing}
+                                  onChange={(e) => handleVectorPointChange(index, 'bearing', e.target.value)}
+                                  placeholder="0-360°"
+                                  style={{ width: '120px' }}
+                                />
+                              </label>
+                            )}
                           </div>
-                          
+
                           <label>Description</label>
                           <div style={{width:"100%"}}>
                             <Editor value={point.description} onChange={(e) => handleVectorPointChange(index, 'description', e.target.value)} className={`${styles.richTextEditor} ${styles.fullWidth}`} />
@@ -494,24 +624,23 @@ const CreateMapPage = () => {
                             <Editor value={point.footnotes} onChange={(e) => handleVectorPointChange(index, 'footnotes', e.target.value)} className={`${styles.richTextEditor} ${styles.fullWidth}`} />
                           </div>
 
-                          <input type="file" onChange={(e) => handleVectorImageChange(index, e.target.files[0])} style={{ marginBottom: '10px', width: '100%' }} />
-                          <FileMeta file={point.image} />
+                          <label>Image or video (optional)</label>
+                          <input type="file" accept="image/*,video/*" onChange={(e) => handleVectorImageChange(index, e.target.files[0])} style={{ marginBottom: '4px', width: '100%' }} />
+                          <p style={{ fontSize: '12px', color: '#777', margin: '0 0 10px' }}>
+                            For video, .mp4 (H.264) plays reliably in every browser — some .mov files use a codec that only Safari can play.
+                          </p>
+                          <FileMeta file={point.image} warnAboveBytes={LARGE_FILE_WARNING_BYTES} />
                           {point.image && typeof point.image === 'string' && (
                             <div>
-                              <img src={point.image} alt={`Point ${index + 1}`} style={{ width: '100%', height: 'auto', marginTop: '10px' }} />
+                              {isVideoFile(point.image) ? (
+                                <video src={point.image} controls style={{ width: '100%', height: 'auto', marginTop: '10px' }} />
+                              ) : (
+                                <img src={point.image} alt={`Point ${index + 1}`} style={{ width: '100%', height: 'auto', marginTop: '10px' }} />
+                              )}
                             </div>
                           )}
                           <br />
 
-                          <label htmlFor={`isDirectional-${index}`}>
-                            <input 
-                              type="checkbox" 
-                              id={`isDirectional-${index}`} 
-                              checked={point.is_directional} 
-                              onChange={(e) => handleDirectionalChange(index, e.target.checked)} 
-                            />
-                            Is Directional
-                          </label>
                           <button type="button" onClick={() => handleRemovePoint(index)}>Remove Point</button>
                         </fieldset>
                       </div>
@@ -546,6 +675,7 @@ const CreateMapPage = () => {
                         <label htmlFor="v_x4y4">West, South</label>
                         <input type="text" name="x4y4" id="v_x4y4" placeholder='x4,y4' value={coordinates.x4y4} onChange={handleCoordinateChange} />
                       </div>
+                      <CoordWarnings validation={boundsValidation} />
                     </div>
                   </div>
                 )}
@@ -554,7 +684,7 @@ const CreateMapPage = () => {
                   <div className={styles.rasterForm}>
                     <label htmlFor="rasterImage">Raster Image</label>
                     <input type="file" name="rasterImage" id="rasterImage" onChange={(e) => setRasterImage(e.target.files[0])} />
-                    <FileMeta file={rasterImage} />
+                    <FileMeta file={rasterImage} warnAboveBytes={LARGE_RASTER_WARNING_BYTES} />
                     {typeof rasterImage === 'string' && (
                       <div>
                         <img src={rasterImage} alt="Current Raster" style={{ width: '200px', height: 'auto', transform: `rotate(${rotation}deg)` }} />
@@ -582,6 +712,7 @@ const CreateMapPage = () => {
                       <label htmlFor="x4y4">West, South</label>
                       <input type="text" name="x4y4" id="x4y4" placeholder='x4y4' value={coordinates.x4y4} onChange={handleCoordinateChange} />
                     </div>
+                    <CoordWarnings validation={boundsValidation} />
                     <br />
                     <label>Rotation: {rotation} degrees</label>
                     <br />
@@ -593,7 +724,13 @@ const CreateMapPage = () => {
                 <br />
                 <br />
 
-                <button type="submit">{id ? 'Update Map' : 'Create Map'}</button>
+                <button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <><FontAwesomeIcon icon={faSpinner} spin /> {id ? 'Updating…' : 'Creating…'}</>
+                  ) : (
+                    id ? 'Update Map' : 'Create Map'
+                  )}
+                </button>
               </div>
             </div>
           </form>

@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import styles from './style.module.css';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHome, faMap, faBook, faCog, faTimeline } from '@fortawesome/free-solid-svg-icons';
+import { faHome, faMap, faBook, faCog, faTimeline, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { collection, doc, getDoc, setDoc } from "firebase/firestore";
 import { ref, getDownloadURL, getStorage, uploadBytesResumable } from 'firebase/storage';
 import { app, db } from '../../../firebase';
-import Editor from 'react-simple-wysiwyg';
+import Editor from '../../../components/RichTextEditor';
 
 const SettingsPage = () => {
   const navigate = useNavigate();
@@ -19,10 +19,14 @@ const SettingsPage = () => {
     credits: '',
     feedback: '',
     geolocation: [0, 0], // Ensure geolocation is initialized with a default array
-    mapZoom: 10 // Default zoom value
+    mapZoom: 10, // Default zoom value
+    siteLive: true, // Whether the public site is visible to everyone
+    previewToken: '' // Lets people with the preview link see the site while hidden
   });
 
   const [logoFile, setLogoFile] = useState(null);
+  const [linkCopyStatus, setLinkCopyStatus] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -93,6 +97,7 @@ const SettingsPage = () => {
   const saveChanges = async (e) => {
     e.preventDefault();
 
+    setIsSubmitting(true);
     try {
       const newLogoURL = await uploadLogoAndSaveData();
 
@@ -107,6 +112,8 @@ const SettingsPage = () => {
       alert("Changes saved successfully!");
     } catch (e) {
       console.error("Error writing document: ", e);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -126,6 +133,55 @@ const SettingsPage = () => {
     }));
   };
 
+  const generatePreviewToken = () => {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID().replace(/-/g, '');
+    return `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  };
+
+  // Hiding/showing the site takes effect immediately, independent of the
+  // "Save Changes" button below, since this is the kind of change people
+  // want to trust took effect right away.
+  const handleToggleSiteLive = async () => {
+    const nextLive = settingsData.siteLive === false;
+    const nextToken = (!nextLive && !settingsData.previewToken)
+      ? generatePreviewToken()
+      : settingsData.previewToken;
+
+    const updated = { ...settingsData, siteLive: nextLive, previewToken: nextToken };
+    setSettingsData(updated);
+
+    try {
+      await setDoc(doc(db, "settings", "settingsData"), updated);
+    } catch (e) {
+      console.error("Error updating site visibility:", e);
+      alert("Failed to update site visibility. Please try again.");
+    }
+  };
+
+  const handleRegeneratePreviewLink = async () => {
+    if (!window.confirm('This invalidates the current preview link — anyone using the old link will lose access. Continue?')) return;
+    const updated = { ...settingsData, previewToken: generatePreviewToken() };
+    setSettingsData(updated);
+    try {
+      await setDoc(doc(db, "settings", "settingsData"), updated);
+    } catch (e) {
+      console.error("Error regenerating preview link:", e);
+      alert("Failed to generate a new link. Please try again.");
+    }
+  };
+
+  const previewLink = `${window.location.origin}/?preview=${settingsData.previewToken || ''}`;
+
+  const handleCopyPreviewLink = async () => {
+    try {
+      await navigator.clipboard.writeText(previewLink);
+      setLinkCopyStatus('Copied!');
+    } catch (e) {
+      setLinkCopyStatus('Copy failed — select and copy manually');
+    }
+    setTimeout(() => setLinkCopyStatus(''), 2000);
+  };
+
   return (
     <div className={styles.dashboard + " admin-shell"}>
       <div className={styles.sidebar}>
@@ -139,6 +195,45 @@ const SettingsPage = () => {
       </div>
       <div className={styles.content}>
         <h1>Settings Page</h1>
+        <div className={styles.section}>
+          <h2>Site Visibility</h2>
+          <p>
+            Status:{' '}
+            <strong>
+              {settingsData.siteLive === false ? 'Hidden (sandbox mode)' : 'Live'}
+            </strong>
+          </p>
+          <p style={{ color: '#666', fontSize: '13px', maxWidth: 520 }}>
+            {settingsData.siteLive === false
+              ? "The public site is hidden from everyone except people you share the preview link with below. Individual maps, eras, and narratives keep their own visibility settings underneath this."
+              : 'The public site is visible to everyone. Hide it while you work on it without affecting the individual visibility settings on maps, eras, and narratives.'}
+          </p>
+          <button type="button" onClick={handleToggleSiteLive}>
+            {settingsData.siteLive === false ? 'Make Site Live' : 'Hide Site'}
+          </button>
+
+          {settingsData.siteLive === false && (
+            <div style={{ marginTop: '16px' }}>
+              <label htmlFor="previewLink">Preview link (share with anyone who should be able to see the hidden site)</label>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap' }}>
+                <input
+                  id="previewLink"
+                  type="text"
+                  readOnly
+                  value={previewLink}
+                  onFocus={(e) => e.target.select()}
+                  style={{ minWidth: '320px', flex: '1 1 320px' }}
+                />
+                <button type="button" onClick={handleCopyPreviewLink}>Copy</button>
+                <button type="button" onClick={handleRegeneratePreviewLink}>Generate New Link</button>
+                {linkCopyStatus && <span style={{ fontSize: '13px', color: '#2e7d32' }}>{linkCopyStatus}</span>}
+              </div>
+              <small style={{ display: 'block', marginTop: '4px', color: '#666' }}>
+                Anyone who opens this link once will keep access on that device/browser until you generate a new link.
+              </small>
+            </div>
+          )}
+        </div>
         <div className={styles.section}>
           <h2>Logo</h2>
           <div className={styles.logoSection}>
@@ -223,7 +318,9 @@ const SettingsPage = () => {
           />
         </div>
         <div>
-          <button onClick={saveChanges}>Save Changes</button>
+          <button onClick={saveChanges} disabled={isSubmitting}>
+            {isSubmitting ? (<><FontAwesomeIcon icon={faSpinner} spin /> Saving…</>) : 'Save Changes'}
+          </button>
         </div>
       </div>
     </div>

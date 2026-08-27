@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { collection, doc, getDocs, getDoc } from 'firebase/firestore';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faInfo, faMap } from '@fortawesome/free-solid-svg-icons';
+import { faInfo, faMap, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import { db } from '../../firebase';
 import styles from './style.module.css';
 import MiniMap from '../MiniMap';
+import { openLinksInNewTab } from '../../utils/linkify';
 import * as maptilersdk from '@maptiler/sdk';
 
 function Controller({
@@ -387,13 +388,18 @@ function Controller({
     });
   };
 
-  const handleInfoClick = (desc) => onInfoClick(desc);
+  const handleInfoClick = (desc, footnotes) => onInfoClick(desc, footnotes);
   const handleNarrativeSelect = (narr) => {
     console.log('=== NARRATIVE SELECTED ===');
     console.log('Full Narrative JSON:', JSON.stringify(narr, null, 2));
     console.log('Narrative Object:', narr);
     setSelectedNarrative(narr);
     onNarrativeSelect(narr);
+  };
+
+  const goToTableOfContents = () => {
+    setSelectedNarrative(null);
+    onNarrativeSelect(null);
   };
 
   // ---------- Footnote helpers (handle escaped or literal HTML) ----------
@@ -567,7 +573,24 @@ function Controller({
     return () => {
       obs.disconnect();
     };
-  }, [selectedNarrative, onActiveChapterChange, activeChapter]);
+  }, [selectedNarrative, onActiveChapterChange, activeChapter, view]);
+
+  // Restore scroll position to whatever chapter was active when the reader
+  // left this narrative (e.g. to fiddle with Maps and Plans), instead of
+  // dropping them back at the top of chapter one.
+  useEffect(() => {
+    if (view !== 'narratives' || !selectedNarrative || !activeChapter) return;
+    const container = narrativeRef.current;
+    if (!container) return;
+    const target = container.querySelector(`#${CSS.escape(activeChapter)}`);
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+    }
+    // Deliberately excludes activeChapter: this should only jump on tab
+    // switches, not fight the user by re-scrolling on every chapter the
+    // IntersectionObserver activates while they scroll normally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, selectedNarrative]);
 
   // Footnote click + keyboard (event delegation)
   const onNarrativeClick = (e) => {
@@ -614,10 +637,17 @@ function Controller({
         <div
           className={view === 'narratives' ? styles.active : ''}
           onClick={() => {
-            setView('narratives');
-            // Returning to ToC by clearing selected narrative
-            setSelectedNarrative(null);
-            onNarrativeSelect(null);
+            if (view === 'narratives') {
+              // Already on this tab: treat as an explicit "back to Table of Contents".
+              goToTableOfContents();
+            } else {
+              // Coming from Maps and Plans: pick back up wherever we left off
+              // instead of dropping the reader back at the Table of Contents.
+              setView('narratives');
+              if (selectedNarrative) {
+                onNarrativeSelect(selectedNarrative);
+              }
+            }
           }}
         >
           <span>narratives</span>
@@ -638,9 +668,18 @@ function Controller({
               below to read more.
             </p>
           ) : (
-            <p>
-              Reading: <strong>{selectedNarrative.title}</strong>
-            </p>
+            <>
+              <p>
+                Reading: <strong>{selectedNarrative.title}</strong>
+              </p>
+              <button
+                type="button"
+                className={styles.backToTocBtn}
+                onClick={goToTableOfContents}
+              >
+                <FontAwesomeIcon icon={faArrowLeft} /> Table of Contents
+              </button>
+            </>
           )}
         </div>
         <div className={styles.miniMap}>
@@ -693,7 +732,7 @@ function Controller({
                   </div>
                   <div
                     className={`${styles.chapterDescription} ${styles.grayTextItalic}`}
-                    dangerouslySetInnerHTML={{ __html: chapter.description }}
+                    dangerouslySetInnerHTML={{ __html: openLinksInNewTab(chapter.description) }}
                   />
                 </div>
                 <div className={styles.chapterMaps}>
@@ -753,7 +792,7 @@ function Controller({
                             )}
                             <i
                               className={styles.mapInfo}
-                              onClick={() => handleInfoClick(map.description)}
+                              onClick={() => handleInfoClick(map.description, map.footnotes)}
                             >
                               <FontAwesomeIcon icon={faInfo} />
                             </i>
@@ -786,7 +825,7 @@ function Controller({
                   <div className={styles.narrativeTitle}>{narr.title}</div>
                   <div
                     className={styles.narrativeDescription}
-                    dangerouslySetInnerHTML={{ __html: narr.description }}
+                    dangerouslySetInnerHTML={{ __html: openLinksInNewTab(narr.description) }}
                   />
                 </li>
               ))}
@@ -805,7 +844,7 @@ function Controller({
           {selectedNarrative.chapters ? (
             processedChapters.map(({ cid, html }) => (
               <section key={cid} id={cid} className={styles.chapterSection}>
-                <p dangerouslySetInnerHTML={{ __html: html }} />
+                <p dangerouslySetInnerHTML={{ __html: openLinksInNewTab(html) }} />
               </section>
             ))
           ) : (
@@ -838,7 +877,7 @@ function Controller({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div dangerouslySetInnerHTML={{ __html: footnoteHtml }} style={{ lineHeight: 1.6 }} />
+            <div dangerouslySetInnerHTML={{ __html: openLinksInNewTab(footnoteHtml) }} style={{ lineHeight: 1.6 }} />
             <div style={{ marginTop: 16, textAlign: 'right' }}>
               <button onClick={() => setFootnoteOpen(false)}>Close</button>
             </div>

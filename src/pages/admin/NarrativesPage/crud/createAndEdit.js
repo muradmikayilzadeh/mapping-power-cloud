@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHome, faMap, faBook, faCog, faTimeline, faArrowUp, faArrowDown } from '@fortawesome/free-solid-svg-icons';
+import { faHome, faMap, faBook, faCog, faTimeline, faArrowUp, faArrowDown, faGripVertical, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import Editor from 'react-simple-wysiwyg';
+import RichTextEditor from '../../../../components/RichTextEditor';
+import DraggableList from '../../../../components/DraggableList';
 import { collection, addDoc, doc, getDoc, updateDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../../../firebase'; // Adjust path if needed
 import styles from '../style.module.css';
@@ -13,6 +15,7 @@ const CreateNarrativePage = () => {
   const [isPublic, setIsPublic] = useState(true);
   const [chapters, setChapters] = useState([]); // Changed to array to preserve order
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
   const { id } = useParams();
@@ -145,6 +148,12 @@ const CreateNarrativePage = () => {
     });
   };
 
+  const sortedChaptersForDisplay = [...chapters].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const handleReorderChapters = (reordered) => {
+    setChapters(reordered.map((ch, i) => ({ ...ch, order: i })));
+  };
+
   const handleChapterField = (index, field, value) => {
     setChapters((prev) => {
       const newChapters = [...prev];
@@ -161,15 +170,18 @@ const CreateNarrativePage = () => {
       e.preventDefault();
     }
 
+    setIsSubmitting(true);
+    try {
+
     // Transform chapters for storage: parse JSON and attach derived fields
     // Sort by order first to ensure correct sequence
     const sortedChapters = [...chapters].sort((a, b) => (a.order || 0) - (b.order || 0));
     const chaptersForSave = {};
-    
+
     // Use for...of to allow direct 'return' to stop the update if validation fails
     for (const [index, ch] of sortedChapters.entries()) {
       const key = ch.key || `chapter-${Date.now()}-${index}`;
-      
+
       // Parse per-chapter Data JSON
       let parsed;
       try {
@@ -254,6 +266,9 @@ const CreateNarrativePage = () => {
     } catch (error) {
       console.error('Error creating/updating narrative: ', error);
       alert('Error creating/updating narrative. Please try again.');
+    }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -370,23 +385,37 @@ const CreateNarrativePage = () => {
                   <p style={{ marginTop: 12 }}>No chapters yet. Click "Add Chapter".</p>
                 )}
 
-                {chapters.sort((a, b) => (a.order || 0) - (b.order || 0)).map((ch, displayIndex) => {
+                <DraggableList
+                  droppableId="narrative-chapters"
+                  items={sortedChaptersForDisplay}
+                  getId={(ch) => ch.key}
+                  onReorder={handleReorderChapters}
+                  renderItem={(ch, displayIndex, dragHandleProps) => {
                   // Find the actual index in the original array for move/remove operations
                   const actualIndex = chapters.findIndex(c => c.key === ch.key);
                   return (
                     <React.Fragment key={ch.key || `chapter-${displayIndex}`}>
                       <div className={styles.chapterItem}>
-                        <div style={{ 
-                          display: 'flex', 
-                          justifyContent: 'space-between', 
-                          alignItems: 'center', 
-                          marginBottom: '10px', 
-                          padding: '10px 12px', 
-                          backgroundColor: '#f9f9f9', 
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: '10px',
+                          padding: '10px 12px',
+                          backgroundColor: '#f9f9f9',
                           borderRadius: '6px',
                           border: '1px solid #e0e0e0'
                         }}>
-                          <strong style={{ fontSize: '16px', color: '#333' }}>Chapter {displayIndex + 1}</strong>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span
+                              {...dragHandleProps}
+                              title="Drag to reorder"
+                              style={{ cursor: 'grab', color: '#888', display: 'flex', alignItems: 'center' }}
+                            >
+                              <FontAwesomeIcon icon={faGripVertical} />
+                            </span>
+                            <strong style={{ fontSize: '16px', color: '#333' }}>Chapter {displayIndex + 1}</strong>
+                          </div>
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                             <button
                               type="button"
@@ -509,7 +538,7 @@ const CreateNarrativePage = () => {
                         <br />
   
                         <label>Content:</label>
-                        <Editor
+                        <RichTextEditor
                           value={ch.content}
                           onChange={(e) =>
                             handleChapterField(actualIndex, 'content', e.target.value)
@@ -576,7 +605,8 @@ const CreateNarrativePage = () => {
                       </div>
                     </React.Fragment>
                   );
-                })}
+                  }}
+                />
               </div>
 
               <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e9ecef' }}>
@@ -603,8 +633,12 @@ const CreateNarrativePage = () => {
         </div>
 
         <div className={styles.formFooter}>
-          <button type="button" onClick={(e) => { e.preventDefault(); handleFormSubmit(e); }}>
-            {id ? 'Update' : 'Save'}
+          <button type="button" disabled={isSubmitting} onClick={(e) => { e.preventDefault(); handleFormSubmit(e); }}>
+            {isSubmitting ? (
+              <><FontAwesomeIcon icon={faSpinner} spin /> {id ? 'Updating…' : 'Saving…'}</>
+            ) : (
+              id ? 'Update' : 'Save'
+            )}
           </button>
           <button type="button" onClick={() => navigate('/narratives')}>
             Back

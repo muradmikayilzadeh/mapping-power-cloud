@@ -6,14 +6,14 @@ import { getStorage } from "firebase/storage";
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 
-// Your web app's Firebase configuration
+// Your web app's Firebase configuration — set these in .env (see .env.example)
 const firebaseConfig = {
-  apiKey: "AIzaSyDOPYO7goL_9lB3teKLUIyCq5ZF5-IN2ao",
-  authDomain: "imaginepdx-fb16a.firebaseapp.com",
-  projectId: "imaginepdx-fb16a",
-  storageBucket: "imaginepdx-fb16a.appspot.com",
-  messagingSenderId: "411529785186",
-  appId: "1:411529785186:web:2648eb8ee34a86761b463b"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);

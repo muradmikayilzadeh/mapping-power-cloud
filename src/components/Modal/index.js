@@ -1,7 +1,38 @@
-import React from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import styles from './style.module.css';
+import { openLinksInNewTab } from '../../utils/linkify';
+import { extractFootnotes } from '../../utils/footnotes';
 
-const Modal = ({ isOpen, onClose, title, content, image, type }) => {
+const hasVisibleText = (html) => !!html && String(html).replace(/<[^>]*>/g, '').trim().length > 0;
+
+const Modal = ({ isOpen, onClose, title, content, footnotes, image, type }) => {
+  const [footnoteOpen, setFootnoteOpen] = useState(false);
+  const [footnoteHtml, setFootnoteHtml] = useState('');
+  const footnoteStoreRef = useRef({});
+
+  const processedContent = useMemo(() => {
+    const { html, store } = extractFootnotes(content, 'modal-content');
+    Object.assign(footnoteStoreRef.current, store);
+    return html;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content]);
+
+  const processedFootnotes = useMemo(() => {
+    const { html, store } = extractFootnotes(footnotes, 'modal-footnotes');
+    Object.assign(footnoteStoreRef.current, store);
+    return html;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [footnotes]);
+
+  const handleContentClick = (e) => {
+    e.stopPropagation();
+    const el = e.target.closest && e.target.closest('.footnote-inline');
+    if (!el) return;
+    const id = el.getAttribute('data-fn');
+    setFootnoteHtml((id && footnoteStoreRef.current[id]) || '');
+    setFootnoteOpen(true);
+  };
+
   if (!isOpen) return null;
 
   // If it's a share modal, use the special share layout
@@ -65,8 +96,28 @@ const Modal = ({ isOpen, onClose, title, content, image, type }) => {
         <span className={styles.closeButton} onClick={onClose}>×</span>
         {image && <img src={image} alt="Modal" className={styles.modalImage} />}
         <h2>{title}</h2>
-        <div dangerouslySetInnerHTML={{ __html: content }} />
+        <div onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: openLinksInNewTab(processedContent) }} />
+        {hasVisibleText(footnotes) && (
+          <div className={styles.footnotesSection}>
+            <h3>Footnotes</h3>
+            <div onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: openLinksInNewTab(processedFootnotes) }} />
+          </div>
+        )}
       </div>
+
+      {footnoteOpen && (
+        <div
+          className={styles.footnotePopupOverlay}
+          onClick={(e) => { e.stopPropagation(); setFootnoteOpen(false); }}
+        >
+          <div className={styles.footnotePopupContent} onClick={(e) => e.stopPropagation()}>
+            <div dangerouslySetInnerHTML={{ __html: openLinksInNewTab(footnoteHtml) }} />
+            <div style={{ marginTop: 16, textAlign: 'right' }}>
+              <button type="button" onClick={() => setFootnoteOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

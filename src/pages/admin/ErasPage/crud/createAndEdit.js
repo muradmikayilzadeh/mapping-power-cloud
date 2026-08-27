@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Editor from 'react-simple-wysiwyg';
-import { faHome, faMap, faBook, faCog, faTimeline, faArrowUp, faArrowDown } from '@fortawesome/free-solid-svg-icons';
+import { faHome, faMap, faBook, faCog, faTimeline, faArrowUp, faArrowDown, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { collection, getDocs, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import { db } from '../../../../firebase'; // Ensure this path is correct based on your project structure
@@ -37,6 +37,7 @@ const CreateEraPage = () => {
   const [isPublic, setIsPublic] = useState(true);
   const [mapSearchTerm, setMapSearchTerm] = useState('');
   const [mapGroupSearchTerm, setMapGroupSearchTerm] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
   const { id } = useParams();
   const [loading, setLoading] = useState(true);
@@ -93,6 +94,7 @@ const CreateEraPage = () => {
       public: isPublic,
     };
 
+    setIsSubmitting(true);
     try {
       if (id) {
         await updateDoc(doc(db, 'eras', id), eraData);
@@ -105,6 +107,8 @@ const CreateEraPage = () => {
     } catch (error) {
       console.error('Error creating/updating era: ', error);
       alert('Error creating/updating era. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -398,20 +402,32 @@ const CreateEraPage = () => {
                                       <FontAwesomeIcon icon={faArrowDown} style={{ fontSize: '11px' }} />
                                     </button>
                                   </div>
-                                  <span style={{ flexGrow: 1, marginRight: '10px' }}>
+                                  <span
+                                    className={isIndented(map) ? styles.orderingItemTitleIndented : ''}
+                                    style={{ flexGrow: 1, marginRight: '10px' }}
+                                  >
                                     {mapEntries.find(entry => entry.id === map)?.title || map}
                                   </span>
                                   <div className={styles.orderingButtons}>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => toggleIndentation(map, 'maps')}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        toggleIndentation(map, 'maps');
+                                      }}
                                       className={isIndented(map) ? styles.indented : ''}
+                                      title={isIndented(map) ? 'Click to remove indentation' : 'Click to indent this item'}
                                     >
-                                      Indentation
+                                      {isIndented(map) ? 'Un-indent' : 'Indent'}
                                     </button>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => handleRemoveMap(map)}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleRemoveMap(map);
+                                      }}
                                       className={styles.removeButton}
                                     >
                                       Remove
@@ -469,20 +485,32 @@ const CreateEraPage = () => {
                                       <FontAwesomeIcon icon={faArrowDown} style={{ fontSize: '11px' }} />
                                     </button>
                                   </div>
-                                  <span style={{ flexGrow: 1, marginRight: '10px' }}>
+                                  <span
+                                    className={isIndented(mapGroup) ? styles.orderingItemTitleIndented : ''}
+                                    style={{ flexGrow: 1, marginRight: '10px' }}
+                                  >
                                     {mapGroupEntries.find(entry => entry.id === mapGroup)?.title || mapGroup}
                                   </span>
                                   <div className={styles.orderingButtons}>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => toggleIndentation(mapGroup, 'mapGroups')}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        toggleIndentation(mapGroup, 'mapGroups');
+                                      }}
                                       className={isIndented(mapGroup) ? styles.indented : ''}
+                                      title={isIndented(mapGroup) ? 'Click to remove indentation' : 'Click to indent this item'}
                                     >
-                                      Indentation
+                                      {isIndented(mapGroup) ? 'Un-indent' : 'Indent'}
                                     </button>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => handleRemoveMapGroup(mapGroup)}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleRemoveMapGroup(mapGroup);
+                                      }}
                                       className={styles.removeButton}
                                     >
                                       Remove
@@ -502,7 +530,13 @@ const CreateEraPage = () => {
 
               <br /><br />
 
-              <button type="submit">{id ? 'Update Era' : 'Create Era'}</button>
+              <button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <><FontAwesomeIcon icon={faSpinner} spin /> {id ? 'Updating…' : 'Creating…'}</>
+                ) : (
+                  id ? 'Update Era' : 'Create Era'
+                )}
+              </button>
             </div>
           </form>
         </div>

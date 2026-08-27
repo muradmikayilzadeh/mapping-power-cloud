@@ -6,6 +6,9 @@ import { db } from '../../firebase';
 import styles from './style.module.css';
 import pinDirectional from './pin-directional.png';
 import pin from './pin.png';
+import { openLinksInNewTab } from '../../utils/linkify';
+import { isVideoFile } from '../../utils/media';
+import Lightbox from './Lightbox';
 
 const fetchSettingsData = async () => {
   try {
@@ -56,11 +59,16 @@ export default function Map({
 
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
+  // Enlarged view of a clicked pin image (null when closed)
+  const [lightboxImage, setLightboxImage] = useState(null);
 
   // Keep a ref of what we think is on the map (ids)
   const mountedIdsRef = useRef(new Set());
   // Cache for fetched maps (ID -> FullMapObject)
   const mapCacheRef = useRef({});
+  // Currently-open popups, keyed by the vector layer id that spawned them, so
+  // we can close them if that layer gets hidden/removed out from under them.
+  const popupsRef = useRef({});
   // Preloaded pin marker images (must be re-added after every setStyle)
   const pinImgRef = useRef(null);
   const pinDirImgRef = useRef(null);
@@ -68,8 +76,13 @@ export default function Map({
   // (empty) closure when re-rendering after a basemap switch.
   const selectedMapsRef = useRef(selectedMaps);
   selectedMapsRef.current = selectedMaps;
+  // The map is already constructed with `style: mapStyle` (below), so the
+  // mapStyle-change effect's very first run — which happens on the same
+  // mount — has nothing to do. Skipping it avoids a redundant setStyle()
+  // that races the map's own initial style load and can throw.
+  const skipInitialStyleEffectRef = useRef(true);
 
-  maptilersdk.config.apiKey = 'llr35dKpffrGaP9ECLL8';
+  maptilersdk.config.apiKey = process.env.REACT_APP_MAPTILER_KEY || 'llr35dKpffrGaP9ECLL8';
 
   const updateOpacity = (mapId, opacity) => {
     if (!map.current) return;
@@ -218,6 +231,12 @@ export default function Map({
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
+    // Tied to this specific map instance (not just "has this effect ever
+    // run"), so it still holds under React StrictMode's dev-only double
+    // mount/unmount/remount, which otherwise consumes a one-shot ref during
+    // the throwaway first mount and leaves the real map unprotected.
+    skipInitialStyleEffectRef.current = true;
+
     map.current = new maptilersdk.Map({
       container: mapContainer.current,
       style: mapStyle,
@@ -269,7 +288,15 @@ export default function Map({
   // Handle mapStyle changes separately to preserve current view
   useEffect(() => {
     if (!map.current) return;
-    
+
+    // The map was just constructed with this exact style — nothing to do,
+    // and calling setStyle() again here would race the map's own initial
+    // load (see skipInitialStyleEffectRef above).
+    if (skipInitialStyleEffectRef.current) {
+      skipInitialStyleEffectRef.current = false;
+      return;
+    }
+
     // Check if style actually changed (robust check for both string URIs and JSON objects)
     const currentStyle = map.current.getStyle();
     const isNewStyleObject = typeof mapStyle === 'object' && mapStyle !== null;
@@ -372,20 +399,43 @@ export default function Map({
   // Only update/add/remove as needed (no full re-add)
   useEffect(() => {
     if (!map.current) return;
-    
+
     // If in narrative mode, don't allow sidebar maps to overwrite
     if (selectedNarrative && activeChapter) return;
 
     if (map.current.isStyleLoaded()) {
       renderMaps(selectedMaps);
-    } else {
-      const onStyleLoad = () => {
-        if (!map.current) return;
-        renderMaps(selectedMaps);
-        map.current.off('style.load', onStyleLoad);
-      };
-      map.current.on('style.load', onStyleLoad);
+      return;
     }
+
+    // isStyleLoaded() can still report false for a moment even after
+    // 'style.load' fires (a known maplibre-gl quirk), so a single-shot
+    // listener can call renderMaps() before the style is truly ready and
+    // throw ("Style is not done loading"). Poll as a fallback instead of
+    // trusting one event, mirroring the mapStyle-change effect below.
+    let cancelled = false;
+    let timer = null;
+
+    const tryRender = () => {
+      if (cancelled || !map.current) return;
+      if (map.current.isStyleLoaded()) {
+        cancelled = true; // done — stop listening/polling
+        map.current.off('style.load', onStyleLoad);
+        renderMaps(selectedMaps);
+      } else {
+        timer = setTimeout(tryRender, 100);
+      }
+    };
+
+    const onStyleLoad = () => tryRender();
+    map.current.on('style.load', onStyleLoad);
+    timer = setTimeout(tryRender, 60);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (map.current) map.current.off('style.load', onStyleLoad);
+    };
   }, [selectedMaps]);
 
   useEffect(() => {
@@ -399,6 +449,7 @@ export default function Map({
     while (popups[0]) {
       popups[0].remove();
     }
+    popupsRef.current = {};
 
     // Hydrate chapter maps (turn IDs into full objects)
     const hydrateMaps = async () => {
@@ -507,11 +558,31 @@ export default function Map({
 
       if (!desiredIds.has(rawId)) {
         const layerId = isAerial ? `overlay-${rawId}` : `vector-layer-${rawId}`;
-        if (map.current.getLayer(layerId)) {
-          map.current.removeLayer(layerId);
+
+        // A pin's popup is a separate DOM overlay that maplibre does not tie
+        // to its source layer, so hiding/removing the layer alone leaves any
+        // open popup for it stranded on screen. Close it explicitly here.
+        if (popupsRef.current[layerId]) {
+          try { popupsRef.current[layerId].remove(); } catch (e) { /* already removed */ }
+          delete popupsRef.current[layerId];
         }
-        if (map.current.getSource(sourceId)) {
-          map.current.removeSource(sourceId);
+
+        // Guard each removal independently: if one layer/source fails to
+        // remove (e.g. a still-loading image source), we don't want that to
+        // abort the loop and leave every other deselected map stuck on the map.
+        try {
+          if (map.current.getLayer(layerId)) {
+            map.current.removeLayer(layerId);
+          }
+        } catch (e) {
+          console.error(`Error removing layer ${layerId}:`, e);
+        }
+        try {
+          if (map.current.getSource(sourceId)) {
+            map.current.removeSource(sourceId);
+          }
+        } catch (e) {
+          console.error(`Error removing source ${sourceId}:`, e);
         }
         mountedIdsRef.current.delete(rawId);
       }
@@ -580,6 +651,7 @@ export default function Map({
               bearing: Number(point.bearing),
               image: point.image,
               caption: point.description,
+              footnotes: point.footnotes,
               is_directional: point.is_directional,
             },
           })),
@@ -607,21 +679,62 @@ export default function Map({
 
         // Attach popup once per layer
         map.current.on('click', layerId, (e) => {
-          const { image, caption } = e.features[0].properties;
+          const { image, caption, footnotes } = e.features[0].properties;
           const coords = e.features[0].geometry.coordinates;
-          new maptilersdk.Popup({ maxWidth: '400px', closeButton: true })
+
+          // Only render media when a file was actually attached — otherwise
+          // the browser's broken-image icon shows up for pins that are
+          // intentionally text/link-only. Videos get a native player instead
+          // of an <img> (which can't display video content at all).
+          const isVideo = isVideoFile(image);
+          const imageHtml = !image
+            ? ''
+            : isVideo
+              ? `<video
+                   src="${image}"
+                   controls
+                   playsinline
+                   style="width:100%; height:auto; border-radius:5px;"
+                 ></video>`
+              : `<img
+                   src="${image}"
+                   alt="Marker"
+                   data-lightbox-trigger="true"
+                   style="width:100%; height:auto; border-radius:5px; cursor:zoom-in;"
+                 />`;
+
+          const footnotesHtml = footnotes && footnotes.replace(/<[^>]*>/g, '').trim()
+            ? `<div style="text-align:left; margin-top:8px; padding-top:8px; border-top:1px solid #ddd; font-size:12px; color:#555;">${openLinksInNewTab(footnotes)}</div>`
+            : '';
+
+          const popup = new maptilersdk.Popup({ maxWidth: '400px', closeButton: true })
             .setLngLat(coords)
             .setHTML(`
               <div style="text-align:center; width:100%;">
-                <img
-                  src="${image}"
-                  alt="Marker"
-                  style="width:100%; height:auto; border-radius:5px;"
-                />
-                <p style="margin-top:10px; font-size:14px; color:#333;">${caption}</p>
+                ${imageHtml}
+                <p style="margin-top:10px; font-size:14px; color:#333;">${openLinksInNewTab(caption) || ''}</p>
+                ${footnotesHtml}
               </div>
             `)
             .addTo(map.current);
+
+          // Track this popup so it can be closed if its pin layer is hidden,
+          // and so a fresh click on the same pin replaces rather than stacks.
+          if (popupsRef.current[layerId]) {
+            try { popupsRef.current[layerId].remove(); } catch (err) { /* no-op */ }
+          }
+          popupsRef.current[layerId] = popup;
+          popup.on('close', () => {
+            if (popupsRef.current[layerId] === popup) delete popupsRef.current[layerId];
+          });
+
+          if (image && !isVideo) {
+            const popupEl = popup.getElement && popup.getElement();
+            const imgEl = popupEl && popupEl.querySelector('[data-lightbox-trigger]');
+            if (imgEl) {
+              imgEl.addEventListener('click', () => setLightboxImage({ src: image, caption }));
+            }
+          }
         });
 
         mountedIdsRef.current.add(id);
@@ -774,6 +887,15 @@ export default function Map({
             <div className={styles.loadingText}>Loading maps...</div>
           </div>
         </div>
+      )}
+
+      {lightboxImage && (
+        <Lightbox
+          key={lightboxImage.src}
+          src={lightboxImage.src}
+          caption={lightboxImage.caption}
+          onClose={() => setLightboxImage(null)}
+        />
       )}
     </div>
   );

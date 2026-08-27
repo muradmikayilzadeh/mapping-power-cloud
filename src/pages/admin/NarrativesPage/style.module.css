@@ -176,3 +176,11 @@ select {
   margin-right: 10px;
 }
 
+.clickableTitle {
+  cursor: pointer;
+}
+
+.clickableTitle:hover {
+  text-decoration: underline;
+}
+

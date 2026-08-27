@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Editor from 'react-simple-wysiwyg';
-import { faHome, faMap, faBook, faCog, faTimeline } from '@fortawesome/free-solid-svg-icons';
+import { faHome, faMap, faBook, faCog, faTimeline, faGripVertical, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { db } from '../../../../firebase';
 import { collection, getDocs, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
+import DraggableList from '../../../../components/DraggableList';
 import styles from '../style.module.css';
 
 const CreateMapGroupPage = () => {
@@ -18,6 +19,7 @@ const CreateMapGroupPage = () => {
   const [selectedMaps, setSelectedMaps] = useState([]);
   const [mapSearchTerm, setMapSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchMapEntries = async () => {
@@ -59,6 +61,7 @@ const CreateMapGroupPage = () => {
       map_ids: selectedMaps
     };
 
+    setIsSubmitting(true);
     try {
       if (id) {
         await updateDoc(doc(db, 'map_groups', id), mapGroupData);
@@ -71,7 +74,13 @@ const CreateMapGroupPage = () => {
     } catch (error) {
       console.error('Error creating/updating map group: ', error);
       alert('Error creating/updating map group. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const handleReorderMaps = (reordered) => {
+    setSelectedMaps(reordered);
   };
 
   const handleAddMap = (mapId) => {
@@ -193,23 +202,38 @@ const CreateMapGroupPage = () => {
                 {selectedMaps.length === 0 ? (
                   <p className={styles.emptyMessage}>No maps selected. Add maps from the table above.</p>
                 ) : (
-                  selectedMaps.map((mapId) => (
-                    <div key={mapId} className={styles.orderingItem}>
-                      <span>{mapEntries.find(entry => entry.id === mapId)?.title || mapId}</span>
-                      <button 
-                        type="button" 
-                        onClick={() => handleRemoveMap(mapId)}
-                        className={styles.removeButton}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))
+                  <DraggableList
+                    droppableId="mapGroupMaps"
+                    items={selectedMaps}
+                    getId={(mapId) => mapId}
+                    onReorder={handleReorderMaps}
+                    renderItem={(mapId, index, dragHandleProps) => (
+                      <div className={styles.orderingItem}>
+                        <span {...dragHandleProps} style={{ cursor: 'grab', color: '#888', marginRight: '10px' }} title="Drag to reorder">
+                          <FontAwesomeIcon icon={faGripVertical} />
+                        </span>
+                        <span style={{ flexGrow: 1 }}>{mapEntries.find(entry => entry.id === mapId)?.title || mapId}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveMap(mapId); }}
+                          className={styles.removeButton}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  />
                 )}
               </div>
 
               <br /><br />
-              <button type="submit">{id ? 'Update Map Group' : 'Create Map Group'}</button>
+              <button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <><FontAwesomeIcon icon={faSpinner} spin /> {id ? 'Updating…' : 'Creating…'}</>
+                ) : (
+                  id ? 'Update Map Group' : 'Create Map Group'
+                )}
+              </button>
             </div>
           </form>
         </div>

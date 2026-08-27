@@ -23,6 +23,36 @@
   overflow-y: auto;
 }
 
+.footnotesSection {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.footnotesSection h3 {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+}
+
+.footnotePopupOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.footnotePopupContent {
+  background: #fff;
+  padding: 16px 20px;
+  max-width: 480px;
+  width: 90%;
+  border-radius: 8px;
+  line-height: 1.6;
+}
+
 /* Close button: no background or border */
 .closeButton {
   float: right;

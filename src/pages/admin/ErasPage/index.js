@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHome, faMap, faBook, faCog, faEdit, faTimes, faTimeline, faArrowUp, faArrowDown, faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
+import { faHome, faMap, faBook, faCog, faEdit, faTimes, faTimeline, faArrowUp, faArrowDown, faEye, faEyeSlash, faGripVertical } from '@fortawesome/free-solid-svg-icons';
 import { db } from '../../../firebase';
 import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import CollapsibleDescription from '../../../components/CollapsibleDescription';
+import DraggableList from '../../../components/DraggableList';
 import styles from './style.module.css';
 
 const ErasPage = () => {
@@ -101,6 +102,22 @@ const ErasPage = () => {
     }
   };
 
+  // Drag-and-drop reordering (only offered when the list isn't filtered by
+  // search — with a search term active, dragging the visible subset would
+  // scramble the order of the eras hidden by the filter).
+  const handleReorder = async (reorderedEras) => {
+    const updatedEras = reorderedEras.map((era, index) => ({ ...era, order: index + 1 }));
+    setEras(updatedEras);
+    setFilteredEras(updatedEras);
+    try {
+      await Promise.all(
+        updatedEras.map((era) => updateDoc(doc(db, 'eras', era.id), { order: era.order }))
+      );
+    } catch (error) {
+      console.error('Error updating order: ', error);
+    }
+  };
+
   return (
     <div className={styles.dashboard + " admin-shell"}>
       <div className={styles.sidebar}>
@@ -129,14 +146,43 @@ const ErasPage = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+        {searchTerm.trim() === '' && filteredEras.length > 1 && (
+          <p style={{ fontSize: 12, color: '#888', margin: '0 0 8px' }}>
+            Drag the <FontAwesomeIcon icon={faGripVertical} /> handle to reorder eras.
+          </p>
+        )}
         <div className={styles.itemList}>
           {filteredEras.length > 0 ? (
-            filteredEras.map((era, index) => {
+            searchTerm.trim() === '' ? (
+              <DraggableList
+                droppableId="eras"
+                items={filteredEras}
+                getId={(era) => era.id}
+                onReorder={handleReorder}
+                renderItem={(era, index, dragHandleProps) => renderEraRow(era, index, dragHandleProps)}
+              />
+            ) : (
+              filteredEras.map((era, index) => renderEraRow(era, index, null))
+            )
+          ) : (
+            <p>No era found</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  function renderEraRow(era, index, dragHandleProps) {
               const isFirst = index === 0;
               const isLast = index === filteredEras.length - 1;
               return (
                 <div key={era.id} className={styles.itemEntry}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '12px', flexShrink: 0 }}>
+                    {dragHandleProps && (
+                      <span {...dragHandleProps} title="Drag to reorder" style={{ cursor: 'grab', color: '#888', display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+                        <FontAwesomeIcon icon={faGripVertical} />
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -218,7 +264,13 @@ const ErasPage = () => {
                   </div>
                   <div className={styles.itemDetails}>
                     <h2>
-                      {era.title}{' '}
+                      <span
+                        className={styles.clickableTitle}
+                        onClick={() => navigate(`/edit-era/${era.id}`)}
+                        title="Click to edit"
+                      >
+                        {era.title}
+                      </span>{' '}
                       <span
                         title={era.public ? 'Publicly visible' : 'Private (hidden)'}
                         style={{
@@ -244,14 +296,7 @@ const ErasPage = () => {
                   </div>
                 </div>
               );
-            })
-          ) : (
-            <p>No era found</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  }
 }
 
 export default ErasPage;

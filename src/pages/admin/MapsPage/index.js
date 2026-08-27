@@ -172,7 +172,13 @@ const MapsPage = () => {
               <div key={entry.id} className={styles.itemEntry}>
                 <div className={styles.itemDetails}>
                   <h2>
-                    {entry.title}{' '}
+                    <span
+                      className={styles.clickableTitle}
+                      onClick={() => navigate(`/edit-map/${entry.id}`)}
+                      title="Click to edit"
+                    >
+                      {entry.title}
+                    </span>{' '}
                     <span
                       title={entry.public ? 'Publicly visible' : 'Private (hidden)'}
                       style={{

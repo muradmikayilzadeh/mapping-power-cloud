@@ -311,10 +311,25 @@
   background-color: #0056b3; /* Darker blue on hover */
 }
 
+/* Strong, unmistakable "active" state for the Indent toggle — the admin
+   theme's default button already looks white-on-white-ish, so a subtle
+   color swap here was invisible. This one inverts to solid dark-on-white
+   regardless of that default. */
 .indented {
-  background: white !important;
-  color: black !important;
-  border: 1px solid black !important;
+  background: #1c2430 !important;
+  color: #ffffff !important;
+  border: 1px solid #1c2430 !important;
+}
+
+.indented:hover {
+  background: #0d1319 !important;
+  border-color: #0d1319 !important;
+}
+
+/* Live preview of the indentation inside the ordering list, matching the
+   20px shift the public site actually applies. */
+.orderingItemTitleIndented {
+  margin-left: 20px;
 }
 
 .miniMoveButton {
@@ -343,4 +358,12 @@
   border-color: #e0e0e0;
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.clickableTitle {
+  cursor: pointer;
+}
+
+.clickableTitle:hover {
+  text-decoration: underline;
 }

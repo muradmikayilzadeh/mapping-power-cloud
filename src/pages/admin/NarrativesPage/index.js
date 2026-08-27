@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHome, faMap, faBook, faCog, faEdit, faEye, faEyeSlash, faTimes, faTimeline, faArrowUp, faArrowDown } from '@fortawesome/free-solid-svg-icons';
+import { faHome, faMap, faBook, faCog, faEdit, faEye, faEyeSlash, faTimes, faTimeline, faArrowUp, faArrowDown, faGripVertical } from '@fortawesome/free-solid-svg-icons';
 import { db } from '../../../firebase';
 import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import CollapsibleDescription from '../../../components/CollapsibleDescription';
+import DraggableList from '../../../components/DraggableList';
 import styles from './style.module.css';
 
 const NarrativesPage = () => {
@@ -153,6 +154,23 @@ const NarrativesPage = () => {
     }
   };
 
+  // Drag-and-drop reordering (only offered when the list isn't filtered by
+  // search — with a search term active, dragging the visible subset would
+  // scramble the order of the narratives hidden by the filter).
+  const handleReorder = async (reorderedNarratives) => {
+    const updated = reorderedNarratives.map((n, index) => ({ ...n, order: index }));
+    setNarratives(updated);
+    setFilteredNarratives(updated);
+    try {
+      await Promise.all(
+        updated.map((n) => updateDoc(doc(db, 'narratives', n.id), { order: n.order }))
+      );
+    } catch (err) {
+      console.error('Failed to update order:', err);
+      alert('Could not update order. Please try again.');
+    }
+  };
+
   return (
     <div className={styles.dashboard + " admin-shell"}>
       <div className={styles.sidebar}>
@@ -178,18 +196,47 @@ const NarrativesPage = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+        {searchTerm.trim() === '' && filteredNarratives.length > 1 && (
+          <p style={{ fontSize: 12, color: '#888', margin: '0 0 8px' }}>
+            Drag the <FontAwesomeIcon icon={faGripVertical} /> handle to reorder narratives.
+          </p>
+        )}
         <div className={styles.itemList}>
           {filteredNarratives.length > 0 ? (
-            filteredNarratives.map((narrative, filteredIndex) => {
+            searchTerm.trim() === '' ? (
+              <DraggableList
+                droppableId="narratives"
+                items={filteredNarratives}
+                getId={(n) => n.id}
+                onReorder={handleReorder}
+                renderItem={(narrative, index, dragHandleProps) => renderNarrativeRow(narrative, dragHandleProps)}
+              />
+            ) : (
+              filteredNarratives.map((narrative) => renderNarrativeRow(narrative, null))
+            )
+          ) : (
+            <p>No narrative found</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  function renderNarrativeRow(narrative, dragHandleProps) {
               // Find position in sorted narratives array
               const sortedNarratives = [...narratives].sort((a, b) => a.order - b.order);
               const actualIndex = sortedNarratives.findIndex(n => n.id === narrative.id);
               const isFirst = actualIndex === 0;
               const isLast = actualIndex === sortedNarratives.length - 1;
-              
+
               return (
                 <div key={narrative.id} className={styles.itemEntry}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '12px', flexShrink: 0 }}>
+                    {dragHandleProps && (
+                      <span {...dragHandleProps} title="Drag to reorder" style={{ cursor: 'grab', color: '#888', display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+                        <FontAwesomeIcon icon={faGripVertical} />
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -271,7 +318,13 @@ const NarrativesPage = () => {
                   </div>
                   <div className={styles.itemDetails}>
                     <h2>
-                      {narrative.title}{' '}
+                      <span
+                        className={styles.clickableTitle}
+                        onClick={() => navigate(`/edit-narrative/${narrative.id}`)}
+                        title="Click to edit"
+                      >
+                        {narrative.title}
+                      </span>{' '}
                       <span
                         title={narrative.public ? 'Publicly visible' : 'Private (hidden)'}
                         style={{
@@ -306,14 +359,7 @@ const NarrativesPage = () => {
                   </div>
                 </div>
               );
-            })
-          ) : (
-            <p>No narrative found</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  }
 }
 
 export default NarrativesPage;

@@ -1,15 +1,10 @@
-import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
-import { useEffect, useRef } from 'react';
-import { doc, getDoc } from 'firebase/firestore'; // Firestore imports
-import { db } from './firebase'; // Adjust the path as per your setup
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { apiGet } from './api/client';
+import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Modern admin panel theme (scoped under .admin-shell, no effect on public pages)
 import './pages/admin/admin-theme.css';
-
-// Components
-import Navbar from './components/Navbar';
-import Controller from './components/Controller';
-import Basemaps from './components/BaseMaps';
 
 // Pages
 import MainPage from './pages/client/MainPage';
@@ -26,88 +21,53 @@ import ErasPage from './pages/admin/ErasPage';
 import CreateEraPage from './pages/admin/ErasPage/crud/createAndEdit';
 import MediaPage from './pages/admin/MediaPage';
 
-// --- Simple page component that prompts for a password and sets a flag ---
-function AuthorizePage() {
-  const ranRef = useRef(false);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    // Guard against double-invocation in React Strict Mode
-    if (ranRef.current) return;
-    ranRef.current = true;
-
-    const input = window.prompt('Enter authorization password:');
-    const ok = input === '2pygafmX64LY';
-
-    if (ok) {
-      localStorage.setItem('isAuthorized', 'true');
-      alert('✅ Authorized successfully.');
-      // Navigate to homepage after clicking OK on alert
-      setTimeout(() => {
-        navigate('/');
-      }, 0);
-    } else {
-      localStorage.removeItem('isAuthorized');
-      alert('❌ Incorrect password.');
-      // Navigate to homepage even on failure
-      setTimeout(() => {
-        navigate('/');
-      }, 0);
-    }
-  }, [navigate]);
-
-  // You can render anything here; the important work happens in useEffect.
-  return null;
+// Gates the admin routes behind a real login (see src/context/AuthContext.js)
+// instead of the old client-side localStorage flag.
+function RequireAuth({ children }) {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return null;
+  if (!isAuthenticated) return <Navigate to="/admin" replace />;
+  return children;
 }
 
 function App() {
   useEffect(() => {
     const fetchProjectTitle = async () => {
       try {
-        const docRef = doc(db, 'settings', 'settingsData'); // Firestore document reference
-        const docSnap = await getDoc(docRef); // Fetch document
-
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          document.title = data.projectTitle || 'Mapping Power'; // Assign projectTitle to document.title
-        } else {
-          console.error('No such document!');
-        }
+        const data = await apiGet('/api/settings/public');
+        document.title = (data && data.projectTitle) || 'Mapping Power';
       } catch (error) {
         console.error('Error fetching project title:', error);
       }
     };
 
     fetchProjectTitle();
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []);
 
   return (
-    <>
+    <AuthProvider>
       <Router>
         <Routes>
           <Route path="/" element={<MainPage />} />
           <Route path="/admin" element={<AdminLoginPage />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/maps" element={<MapsPage />} />
-          <Route path="/new-map" element={<CreateMapPage />} />
-          <Route path="/edit-map/:id" element={<CreateMapPage />} />
-          <Route path="/map-groups" element={<MapGroupsPage />} />
-          <Route path="/new-map-group" element={<CreateMapGroupPage />} />
-          <Route path="/edit-map-group/:id" element={<CreateMapGroupPage />} />
-          <Route path="/eras" element={<ErasPage />} />
-          <Route path="/create-era" element={<CreateEraPage />} />
-          <Route path="/edit-era/:id" element={<CreateEraPage />} />
-          <Route path="/media" element={<MediaPage />} />
-          <Route path="/narratives" element={<NarrativesPage />} />
-          <Route path="/create-narrative" element={<CreateNarrativePage />} />
-          <Route path="/edit-narrative/:id" element={<CreateNarrativePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-
-          {/* New authorize route */}
-          <Route path="/authorize" element={<AuthorizePage />} />
+          <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
+          <Route path="/maps" element={<RequireAuth><MapsPage /></RequireAuth>} />
+          <Route path="/new-map" element={<RequireAuth><CreateMapPage /></RequireAuth>} />
+          <Route path="/edit-map/:id" element={<RequireAuth><CreateMapPage /></RequireAuth>} />
+          <Route path="/map-groups" element={<RequireAuth><MapGroupsPage /></RequireAuth>} />
+          <Route path="/new-map-group" element={<RequireAuth><CreateMapGroupPage /></RequireAuth>} />
+          <Route path="/edit-map-group/:id" element={<RequireAuth><CreateMapGroupPage /></RequireAuth>} />
+          <Route path="/eras" element={<RequireAuth><ErasPage /></RequireAuth>} />
+          <Route path="/create-era" element={<RequireAuth><CreateEraPage /></RequireAuth>} />
+          <Route path="/edit-era/:id" element={<RequireAuth><CreateEraPage /></RequireAuth>} />
+          <Route path="/media" element={<RequireAuth><MediaPage /></RequireAuth>} />
+          <Route path="/narratives" element={<RequireAuth><NarrativesPage /></RequireAuth>} />
+          <Route path="/create-narrative" element={<RequireAuth><CreateNarrativePage /></RequireAuth>} />
+          <Route path="/edit-narrative/:id" element={<RequireAuth><CreateNarrativePage /></RequireAuth>} />
+          <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
         </Routes>
       </Router>
-    </>
+    </AuthProvider>
   );
 }
 

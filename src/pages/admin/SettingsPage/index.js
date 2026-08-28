@@ -3,9 +3,7 @@ import styles from './style.module.css';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHome, faMap, faBook, faCog, faTimeline, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { collection, doc, getDoc, setDoc } from "firebase/firestore";
-import { ref, getDownloadURL, getStorage, uploadBytesResumable } from 'firebase/storage';
-import { app, db } from '../../../firebase';
+import { apiGet, apiPut, apiUpload, resolveAssetUrl } from '../../../api/client';
 import Editor from '../../../components/RichTextEditor';
 
 const SettingsPage = () => {
@@ -31,10 +29,8 @@ const SettingsPage = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const docRef = doc(db, "settings", "settingsData");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const fetchedData = docSnap.data();
+        const fetchedData = await apiGet('/api/settings');
+        if (fetchedData) {
           setSettingsData({
             ...settingsData,
             ...fetchedData,
@@ -70,22 +66,8 @@ const SettingsPage = () => {
   const uploadLogoAndSaveData = async () => {
     if (logoFile) {
       try {
-        const logoPath = `/logos/${logoFile.name}`;
-        const storage = getStorage(app);
-        const storageRef = ref(storage, logoPath);
-
-        const uploadTask = uploadBytesResumable(storageRef, logoFile);
-
-        await new Promise((resolve, reject) => {
-          uploadTask.on('state_changed',
-            null,
-            (error) => reject(error),
-            resolve
-          );
-        });
-
-        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-        return downloadURL;
+        const { url } = await apiUpload(logoFile, { category: 'logos' });
+        return url;
       } catch (error) {
         console.error("Error uploading logo:", error);
         throw error;
@@ -106,8 +88,7 @@ const SettingsPage = () => {
         ...(newLogoURL && { logo: newLogoURL })
       };
 
-      const docRef = doc(db, "settings", "settingsData");
-      await setDoc(docRef, updatedData);
+      await apiPut('/api/settings', updatedData);
       console.log("Document successfully written!");
       alert("Changes saved successfully!");
     } catch (e) {
@@ -151,7 +132,7 @@ const SettingsPage = () => {
     setSettingsData(updated);
 
     try {
-      await setDoc(doc(db, "settings", "settingsData"), updated);
+      await apiPut('/api/settings', updated);
     } catch (e) {
       console.error("Error updating site visibility:", e);
       alert("Failed to update site visibility. Please try again.");
@@ -163,7 +144,7 @@ const SettingsPage = () => {
     const updated = { ...settingsData, previewToken: generatePreviewToken() };
     setSettingsData(updated);
     try {
-      await setDoc(doc(db, "settings", "settingsData"), updated);
+      await apiPut('/api/settings', updated);
     } catch (e) {
       console.error("Error regenerating preview link:", e);
       alert("Failed to generate a new link. Please try again.");
@@ -240,7 +221,7 @@ const SettingsPage = () => {
             <div className={styles.currentLogo}>
               <h3>Current Logo</h3>
               {settingsData.logo ? (
-                <img src={settingsData.logo} alt="Current Logo" width={100} />
+                <img src={resolveAssetUrl(settingsData.logo)} alt="Current Logo" width={100} />
               ) : (
                 <p>No logo uploaded</p>
               )}

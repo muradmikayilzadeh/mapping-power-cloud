@@ -4,9 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Editor from 'react-simple-wysiwyg';
 import RichTextEditor from '../../../../components/RichTextEditor';
 import { faHome, faMap, faBook, faCog, faTimeline, faLocationDot, faImage, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { db, storage } from '../../../../firebase';
-import { collection, addDoc, doc, getDoc, getDocs, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, getMetadata } from 'firebase/storage';
+import { apiGet, apiPost, apiPut, apiUpload, resolveAssetUrl } from '../../../../api/client';
 import { validateCoordPairs } from '../../../../utils/coordinates';
 import { isVideoFile } from '../../../../utils/media';
 import styles from '../style.module.css';
@@ -27,12 +25,10 @@ const formatBytes = (bytes) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 };
 
-// Pull the original file name out of a Firebase download URL as a fallback
-// when storage metadata can't be fetched.
+// Pull the original file name out of an uploaded file's path/URL.
 const fileNameFromUrl = (url) => {
   try {
-    const path = decodeURIComponent(url.split('/o/')[1].split('?')[0]);
-    return path.split('/').pop();
+    return decodeURIComponent(url.split('?')[0].split('/').pop());
   } catch (e) {
     return 'file';
   }
@@ -40,9 +36,9 @@ const fileNameFromUrl = (url) => {
 
 /**
  * Shows the file name, size and upload date for a raster/vector file.
- * `file` may be either a freshly-selected File object (not uploaded yet) or a
- * Firebase Storage download URL (already uploaded), in which case metadata is
- * fetched from Storage.
+ * `file` may be either a freshly-selected File object (not uploaded yet) or
+ * an already-uploaded file's URL, in which case size/date are read from the
+ * static file server's response headers via a HEAD request.
  */
 function FileMeta({ file, warnAboveBytes }) {
   const [meta, setMeta] = useState(null);
@@ -56,12 +52,18 @@ function FileMeta({ file, warnAboveBytes }) {
     }
 
     if (typeof file === 'string') {
-      // Already uploaded — fetch name/size/date from Storage.
+      // Already uploaded — read size/date from the static file response headers.
       (async () => {
         try {
-          const m = await getMetadata(ref(storage, file));
+          const res = await fetch(resolveAssetUrl(file), { method: 'HEAD' });
+          const size = res.headers.get('content-length');
+          const lastModified = res.headers.get('last-modified');
           if (active) {
-            setMeta({ name: m.name, size: m.size, uploaded: m.timeCreated });
+            setMeta({
+              name: fileNameFromUrl(file),
+              size: size ? Number(size) : null,
+              uploaded: lastModified || null,
+            });
           }
         } catch (err) {
           if (active) {
@@ -147,12 +149,10 @@ const CreateMapPage = () => {
   useEffect(() => {
     const fetchHomeLocation = async () => {
       try {
-        const snap = await getDoc(doc(db, 'settings', 'settingsData'));
-        if (snap.exists()) {
-          const { geolocation } = snap.data();
-          if (Array.isArray(geolocation) && geolocation.length === 2) {
-            setHomeLocation({ lat: geolocation[0], lng: geolocation[1] });
-          }
+        const settings = await apiGet('/api/settings/public');
+        const { geolocation } = settings || {};
+        if (Array.isArray(geolocation) && geolocation.length === 2) {
+          setHomeLocation({ lat: geolocation[0], lng: geolocation[1] });
         }
       } catch (err) {
         console.error('Error loading default location for coordinate checks:', err);
@@ -164,9 +164,8 @@ const CreateMapPage = () => {
   useEffect(() => {
     const fetchMapData = async () => {
       if (id) {
-        const mapDoc = await getDoc(doc(db, 'maps', id));
-        if (mapDoc.exists()) {
-          const data = mapDoc.data();
+        const data = await apiGet(`/api/maps/${id}`);
+        if (data) {
           setTitle(data.title);
           setYears(data.years);
           setHtml(data.description);
@@ -200,9 +199,8 @@ const CreateMapPage = () => {
 
     const fetchBoundsSources = async () => {
       try {
-        const snap = await getDocs(collection(db, 'maps'));
-        const sources = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+        const allMaps = (await apiGet('/api/maps')) || [];
+        const sources = allMaps
           .filter((m) => m.id !== id)
           .map((m) => {
             // A source can offer either raster image bounds or vector focus bounds.
@@ -292,33 +290,29 @@ const CreateMapPage = () => {
     setIsSubmitting(true);
     try {
       let mapId = id; // Use the existing ID if editing; create a new one later for new maps
-  
+
       if (!id) {
-        // Create a new map document and retrieve its ID
-        const newDocRef = await addDoc(collection(db, 'maps'), {}); // Temporarily create a blank document
-        mapId = newDocRef.id;
+        // Create a blank map document first to reserve an id for upload paths
+        const created = await apiPost('/api/maps', {});
+        mapId = created.id;
       }
-  
+
       // Upload vector file for 'vector' type maps
       if (selectedOption === 'vector' && vectorFile && typeof vectorFile !== 'string') {
-        const vectorFileRef = ref(storage, `maps/vector/${mapId}/${vectorFile.name}`);
-        await uploadBytes(vectorFileRef, vectorFile);
-        const vectorFileURL = await getDownloadURL(vectorFileRef);
-        docData.vector_file = vectorFileURL;
+        const { url } = await apiUpload(vectorFile, { category: 'maps', dir: `vector/${mapId}` });
+        docData.vector_file = url;
       }
-  
+
       // Upload raster image for 'raster' type maps
       if (selectedOption === 'raster' && rasterImage && typeof rasterImage !== 'string') {
-        const rasterImageRef = ref(storage, `maps/raster/${mapId}/${rasterImage.name}`);
-        await uploadBytes(rasterImageRef, rasterImage);
-        const rasterImageURL = await getDownloadURL(rasterImageRef);
-        docData.raster_image = rasterImageURL;
+        const { url } = await apiUpload(rasterImage, { category: 'maps', dir: `raster/${mapId}` });
+        docData.raster_image = url;
         docData.image_bounds_coords = Object.values(coordinates);
       } else if (selectedOption === 'raster') {
         // Only update coordinates if no new raster image is uploaded
         docData.image_bounds_coords = Object.values(coordinates);
       }
-  
+
       // Persist optional focus bounds for vector maps (used to frame the map
       // when the centering button is pressed). Only store if the user set them.
       if (selectedOption === 'vector') {
@@ -333,29 +327,31 @@ const CreateMapPage = () => {
         const vectorInfo = await Promise.all(
           vectorPoints.map(async (point, index) => {
             if (point.image && typeof point.image !== 'string') {
-              // Keep the original file name (and its extension) in the storage
+              // Keep the original file name (and its extension) in the upload
               // path — without it, there's no way to tell a video upload from
               // an image afterward, so it always rendered (and failed) as an <img>.
-              const imageRef = ref(storage, `maps/vector/${mapId}/point_${index + 1}_${point.image.name}`);
-              await uploadBytes(imageRef, point.image);
-              const imageUrl = await getDownloadURL(imageRef);
-              return { ...point, image: imageUrl };
+              const { url } = await apiUpload(point.image, {
+                category: 'maps',
+                dir: `vector/${mapId}`,
+                filenamePrefix: `point_${index + 1}_`,
+              });
+              return { ...point, image: url };
             }
             return point;
           })
         );
         docData.vector_points = vectorInfo;
       }
-  
-      // Update the map document in Firestore
+
+      // Save the map document
       if (id) {
-        await updateDoc(doc(db, 'maps', id), docData);
+        await apiPut(`/api/maps/${id}`, docData);
         alert('Map updated successfully!');
       } else {
-        await updateDoc(doc(db, 'maps', mapId), docData);
+        await apiPut(`/api/maps/${mapId}`, docData);
         alert('Map created successfully!');
       }
-  
+
       navigate('/maps');
     } catch (error) {
       console.error('Error creating/updating map: ', error);
@@ -566,7 +562,7 @@ const CreateMapPage = () => {
                     <FileMeta file={vectorFile} warnAboveBytes={LARGE_FILE_WARNING_BYTES} />
                     {typeof vectorFile === 'string' && (
                       <div>
-                        <a href={vectorFile} target="_blank" rel="noopener noreferrer">View current vector file</a>
+                        <a href={resolveAssetUrl(vectorFile)} target="_blank" rel="noopener noreferrer">View current vector file</a>
                       </div>
                     )}
 
@@ -633,9 +629,9 @@ const CreateMapPage = () => {
                           {point.image && typeof point.image === 'string' && (
                             <div>
                               {isVideoFile(point.image) ? (
-                                <video src={point.image} controls style={{ width: '100%', height: 'auto', marginTop: '10px' }} />
+                                <video src={resolveAssetUrl(point.image)} controls style={{ width: '100%', height: 'auto', marginTop: '10px' }} />
                               ) : (
-                                <img src={point.image} alt={`Point ${index + 1}`} style={{ width: '100%', height: 'auto', marginTop: '10px' }} />
+                                <img src={resolveAssetUrl(point.image)} alt={`Point ${index + 1}`} style={{ width: '100%', height: 'auto', marginTop: '10px' }} />
                               )}
                             </div>
                           )}
@@ -687,7 +683,7 @@ const CreateMapPage = () => {
                     <FileMeta file={rasterImage} warnAboveBytes={LARGE_RASTER_WARNING_BYTES} />
                     {typeof rasterImage === 'string' && (
                       <div>
-                        <img src={rasterImage} alt="Current Raster" style={{ width: '200px', height: 'auto', transform: `rotate(${rotation}deg)` }} />
+                        <img src={resolveAssetUrl(rasterImage)} alt="Current Raster" style={{ width: '200px', height: 'auto', transform: `rotate(${rotation}deg)` }} />
                       </div>
                     )}
                     <br />

@@ -3,9 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Editor from 'react-simple-wysiwyg';
 import { faHome, faMap, faBook, faCog, faTimeline, faArrowUp, faArrowDown, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { collection, getDocs, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { apiGet, apiPost, apiPut } from '../../../../api/client';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
-import { db } from '../../../../firebase'; // Ensure this path is correct based on your project structure
 import styles from '../style.module.css';
 
 const CreateEraPage = () => {
@@ -44,28 +43,29 @@ const CreateEraPage = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      const mapsSnapshot = await getDocs(collection(db, 'maps'));
-      const mapGroupsSnapshot = await getDocs(collection(db, 'map_groups'));
+      const [mapsData, mapGroupsData] = await Promise.all([
+        apiGet('/api/maps'),
+        apiGet('/api/map-groups'),
+      ]);
 
-      const maps = mapsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        title: doc.data().title + " (" + doc.data().years + ")",
-        description: doc.data().description
+      const maps = (mapsData || []).map(m => ({
+        id: m.id,
+        title: m.title + " (" + m.years + ")",
+        description: m.description
       }));
 
-      const mapGroups = mapGroupsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        title: doc.data().title + " (" + doc.data().years + ")",
-        description: doc.data().description
+      const mapGroups = (mapGroupsData || []).map(g => ({
+        id: g.id,
+        title: g.title + " (" + g.years + ")",
+        description: g.description
       }));
 
       setMapEntries(maps);
       setMapGroupEntries(mapGroups);
 
       if (id) {
-        const eraDoc = await getDoc(doc(db, 'eras', id));
-        if (eraDoc.exists()) {
-          const data = eraDoc.data();
+        const data = await apiGet(`/api/eras/${id}`);
+        if (data) {
           setTitle(data.title);
           setYears(data.years);
           setHtml(data.description);
@@ -97,10 +97,10 @@ const CreateEraPage = () => {
     setIsSubmitting(true);
     try {
       if (id) {
-        await updateDoc(doc(db, 'eras', id), eraData);
+        await apiPut(`/api/eras/${id}`, eraData);
         alert('Era updated successfully!');
       } else {
-        await addDoc(collection(db, 'eras'), eraData);
+        await apiPost('/api/eras', eraData);
         alert('Era created successfully!');
       }
       navigate('/eras');

@@ -1,52 +1,27 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import styles from './style.module.css';
+import { useAuth } from '../../../context/AuthContext';
 
 const LoginPage = () => {
-    const [email, setEmail] = useState('');
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const { login } = useAuth();
+    const navigate = useNavigate();
 
     const handleLogin = async (e) => {
         e.preventDefault();
-
-        // Disable the submit button during the request
+        setErrorMessage('');
         setIsSubmitting(true);
 
-        // Prepare the data to be sent in the request body
-        const data = {
-            email,
-            password,
-        };
-
         try {
-            const response = await fetch("https://us-central1-qroovy-a9b3a.cloudfunctions.net/app/login", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(data),
-            });
-
-            if (response.ok) {
-                // console log response data
-                const responseData = await response.json();
-                if (responseData.is_admin != "") {
-                    console.log('Success');
-                    // redirect to dashboard with data from response
-                    localStorage.setItem('listing_id', responseData.is_admin);
-                    window.location.href = '/dashboard';
-                } else {
-                    setErrorMessage('E-poçt ünvanı və ya şifrə yanlışdır!');
-                }
-            } else {
-                setErrorMessage('E-poçt ünvanı və ya şifrə yanlışdır!');
-            }
+            await login(username, password);
+            navigate('/dashboard');
         } catch (error) {
-            console.error('An error occurred:', error);
-            setErrorMessage('An error occurred during login.');
+            setErrorMessage('Incorrect username or password.');
         } finally {
-            // Re-enable the submit button after the request is completed
             setIsSubmitting(false);
         }
     };
@@ -55,15 +30,15 @@ const LoginPage = () => {
         <div className={styles.wrapper + " admin-shell"}>
             <div className={styles.coverPhotoContainer}></div>
             <div className={styles.loginContainer}>
-                <form>
+                <form onSubmit={handleLogin}>
                     <div className="form-group">
-                        <label htmlFor="email">Email</label>
+                        <label htmlFor="username">Username</label>
                         <input
-                            type="email"
-                            id="email"
+                            type="text"
+                            id="username"
                             autoFocus
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
                         />
                     </div>
                     <div className="form-group">
@@ -76,7 +51,7 @@ const LoginPage = () => {
                         />
                     </div>
                     {errorMessage && <div className={styles.errorMessage}>{errorMessage}</div>}
-                    <button type="submit" onClick={handleLogin} disabled={isSubmitting}>
+                    <button type="submit" disabled={isSubmitting}>
                         {isSubmitting ? 'Loading...' : 'Login'}
                     </button>
                 </form>

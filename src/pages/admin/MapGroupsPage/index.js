@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHome, faMap, faBook, faCog, faEdit, faTimes, faTimeline, faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
-import { db } from '../../../firebase';
-import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { apiGet, apiPut, apiDelete } from '../../../api/client';
 import CollapsibleDescription from '../../../components/CollapsibleDescription';
 import styles from './style.module.css';
 
@@ -15,17 +14,13 @@ const MapGroupsPage = () => {
 
   useEffect(() => {
     const fetchMapGroups = async () => {
-      const querySnapshot = await getDocs(collection(db, 'map_groups'));
-      const groups = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          title: data.title,
-          description: data.description,
-          // default visibility: if field absent -> visible (true)
-          public: Object.prototype.hasOwnProperty.call(data, 'public') ? !!data.public : true,
-        };
-      });
+      const data = (await apiGet('/api/map-groups')) || [];
+      const groups = data.map(g => ({
+        id: g.id,
+        title: g.title,
+        description: g.description,
+        public: Object.prototype.hasOwnProperty.call(g, 'public') ? !!g.public : true,
+      }));
       setMapGroups(groups);
       setFilteredGroups(groups);
     };
@@ -50,7 +45,7 @@ const MapGroupsPage = () => {
     setFilteredGroups(prev => prev.map(g => (g.id === id ? { ...g, public: newValue } : g)));
 
     try {
-      await updateDoc(doc(db, 'map_groups', id), { public: newValue });
+      await apiPut(`/api/map-groups/${id}`, { public: newValue });
     } catch (err) {
       console.error('Failed to update visibility:', err);
       // rollback on failure
@@ -64,7 +59,7 @@ const MapGroupsPage = () => {
     const confirmDelete = window.confirm('Are you sure you want to delete this map group?');
     if (confirmDelete) {
       try {
-        await deleteDoc(doc(db, 'map_groups', id));
+        await apiDelete(`/api/map-groups/${id}`);
         setMapGroups(mapGroups.filter(group => group.id !== id));
         setFilteredGroups(filteredGroups.filter(group => group.id !== id));
       } catch (error) {

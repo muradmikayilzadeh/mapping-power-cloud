@@ -5,8 +5,7 @@ import { faHome, faMap, faBook, faCog, faTimeline, faArrowUp, faArrowDown, faGri
 import Editor from 'react-simple-wysiwyg';
 import RichTextEditor from '../../../../components/RichTextEditor';
 import DraggableList from '../../../../components/DraggableList';
-import { collection, addDoc, doc, getDoc, updateDoc, getDocs } from 'firebase/firestore';
-import { db } from '../../../../firebase'; // Adjust path if needed
+import { apiGet, apiPost, apiPut } from '../../../../api/client';
 import styles from '../style.module.css';
 
 const CreateNarrativePage = () => {
@@ -30,9 +29,8 @@ const CreateNarrativePage = () => {
     const fetchData = async () => {
       try {
         if (id) {
-          const narrativeDoc = await getDoc(doc(db, 'narratives', id));
-          if (narrativeDoc.exists()) {
-            const data = narrativeDoc.data();
+          const data = await apiGet(`/api/narratives/${id}`);
+          if (data) {
             setTitle(data.title || '');
             setDescription(data.description || '');
             // Default to true (public) if field doesn't exist
@@ -225,9 +223,9 @@ const CreateNarrativePage = () => {
     if (id) {
       // When editing, keep the existing order
       try {
-        const existingDoc = await getDoc(doc(db, 'narratives', id));
-        if (existingDoc.exists()) {
-          narrativeOrder = typeof existingDoc.data().order === 'number' ? existingDoc.data().order : 0;
+        const existingDoc = await apiGet(`/api/narratives/${id}`);
+        if (existingDoc) {
+          narrativeOrder = typeof existingDoc.order === 'number' ? existingDoc.order : 0;
         }
       } catch (err) {
         console.error('Error fetching existing order:', err);
@@ -235,11 +233,8 @@ const CreateNarrativePage = () => {
     } else {
       // When creating, assign order based on highest existing order + 1
       try {
-        const allNarratives = await getDocs(collection(db, 'narratives'));
-        const orders = allNarratives.docs.map(d => {
-          const data = d.data();
-          return typeof data.order === 'number' ? data.order : 0;
-        });
+        const allNarratives = (await apiGet('/api/narratives')) || [];
+        const orders = allNarratives.map(n => (typeof n.order === 'number' ? n.order : 0));
         narrativeOrder = orders.length > 0 ? Math.max(...orders) + 1 : 0;
       } catch (err) {
         console.error('Error calculating new order:', err);
@@ -256,10 +251,10 @@ const CreateNarrativePage = () => {
 
     try {
       if (id) {
-        await updateDoc(doc(db, 'narratives', id), narrativeData);
+        await apiPut(`/api/narratives/${id}`, narrativeData);
         alert('Narrative updated successfully!');
       } else {
-        await addDoc(collection(db, 'narratives'), narrativeData);
+        await apiPost('/api/narratives', narrativeData);
         alert('Narrative created successfully!');
       }
       navigate('/narratives');

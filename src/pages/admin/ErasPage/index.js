@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHome, faMap, faBook, faCog, faEdit, faTimes, faTimeline, faArrowUp, faArrowDown, faEye, faEyeSlash, faGripVertical } from '@fortawesome/free-solid-svg-icons';
-import { db } from '../../../firebase';
-import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { apiGet, apiPut, apiDelete } from '../../../api/client';
 import CollapsibleDescription from '../../../components/CollapsibleDescription';
 import DraggableList from '../../../components/DraggableList';
 import styles from './style.module.css';
@@ -16,18 +15,9 @@ const ErasPage = () => {
 
   useEffect(() => {
     const fetchEras = async () => {
-      const querySnapshot = await getDocs(collection(db, 'eras'));
-      const erasData = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          public: Object.prototype.hasOwnProperty.call(data, 'public') ? !!data.public : true,
-        };
-      });
-      const sortedEras = erasData.sort((a, b) => a.order - b.order); // Sort by the 'order' field
-      setEras(sortedEras);
-      setFilteredEras(sortedEras);
+      const erasData = (await apiGet('/api/eras')) || [];
+      setEras(erasData);
+      setFilteredEras(erasData);
     };
 
     fetchEras();
@@ -47,7 +37,7 @@ const ErasPage = () => {
     setEras((prev) => prev.map((e) => (e.id === id ? { ...e, public: newValue } : e)));
     setFilteredEras((prev) => prev.map((e) => (e.id === id ? { ...e, public: newValue } : e)));
     try {
-      await updateDoc(doc(db, 'eras', id), { public: newValue });
+      await apiPut(`/api/eras/${id}`, { public: newValue });
     } catch (err) {
       console.error('Failed to update visibility:', err);
       setEras((prev) => prev.map((e) => (e.id === id ? { ...e, public: !newValue } : e)));
@@ -60,7 +50,7 @@ const ErasPage = () => {
     const confirmDelete = window.confirm('Are you sure you want to delete this era?');
     if (confirmDelete) {
       try {
-        await deleteDoc(doc(db, 'eras', id));
+        await apiDelete(`/api/eras/${id}`);
         setEras(eras.filter(era => era.id !== id));
         setFilteredEras(filteredEras.filter(era => era.id !== id));
       } catch (error) {
@@ -91,10 +81,10 @@ const ErasPage = () => {
     setEras(updatedEras); // Update the UI immediately
     setFilteredEras(updatedEras); // Reflect the new order in the filtered list
 
-    // Update the order in Firestore
+    // Persist the new order
     try {
       const updatePromises = updatedEras.map(era => {
-        return updateDoc(doc(db, 'eras', era.id), { order: era.order });
+        return apiPut(`/api/eras/${era.id}`, { order: era.order });
       });
       await Promise.all(updatePromises);
     } catch (error) {
@@ -111,7 +101,7 @@ const ErasPage = () => {
     setFilteredEras(updatedEras);
     try {
       await Promise.all(
-        updatedEras.map((era) => updateDoc(doc(db, 'eras', era.id), { order: era.order }))
+        updatedEras.map((era) => apiPut(`/api/eras/${era.id}`, { order: era.order }))
       );
     } catch (error) {
       console.error('Error updating order: ', error);

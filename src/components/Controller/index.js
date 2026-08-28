@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { collection, doc, getDocs, getDoc } from 'firebase/firestore';
+import { apiGet } from '../../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faInfo, faMap, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
-import { db } from '../../firebase';
 import styles from './style.module.css';
 import MiniMap from '../MiniMap';
 import { openLinksInNewTab } from '../../utils/linkify';
@@ -191,58 +190,40 @@ function Controller({
   useEffect(() => {
     const fetchChaptersAndNarratives = async () => {
       try {
-        const erasSnap = await getDocs(collection(db, 'eras'));
-        const allEras = erasSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => a.order - b.order);
-        const eras = allEras.filter((e) =>
-          Object.prototype.hasOwnProperty.call(e, 'public') ? !!e.public : true
-        );
+        // The API already filters to public docs (sorted by `order`) for an
+        // unauthenticated request, so no client-side visibility filtering is
+        // needed here anymore.
+        const eras = await apiGet('/api/eras');
 
-        const mapsCol = collection(db, 'maps');
-        const groupsCol = collection(db, 'map_groups');
-
-        const fetchDetails = async (id, colRef) => {
-          const snap = await getDoc(doc(colRef, id));
-          return snap.exists() ? { id: snap.id, ...snap.data() } : null;
-        };
-
-        const isPublic = (m) =>
-          Object.prototype.hasOwnProperty.call(m, 'public') ? !!m.public : true;
+        const fetchDetails = async (id, resource) => apiGet(`/api/${resource}/${id}`);
 
         const chaptersData = await Promise.all(
-          eras.map(async (era) => {
-            const maps = await Promise.all((era.maps || []).map((mid) => fetchDetails(mid, mapsCol)));
+          (eras || []).map(async (era) => {
+            const maps = await Promise.all((era.maps || []).map((mid) => fetchDetails(mid, 'maps')));
             const mapGroups = await Promise.all(
-              (era.map_groups || []).map((gid) => fetchDetails(gid, groupsCol))
+              (era.map_groups || []).map((gid) => fetchDetails(gid, 'map-groups'))
             );
             return {
               title: era.title,
               date: era.years,
               description: era.description,
-              // include only maps that are public (default true if field missing)
-              maps: maps.filter(Boolean).filter(isPublic),
-              mapGroups: mapGroups.filter(Boolean).filter(isPublic),
+              maps: maps.filter(Boolean),
+              mapGroups: mapGroups.filter(Boolean),
               indented: era.indented || [],
             };
           })
         );
         setChapters(chaptersData);
 
-        const narrativeSnap = await getDocs(collection(db, 'narratives'));
-        const narrativesData = narrativeSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        // Filter to only show public narratives (default to true if field missing)
-        const publicNarratives = narrativesData.filter((n) =>
-          Object.prototype.hasOwnProperty.call(n, 'public') ? !!n.public : true
-        );
-        // Sort by order field (default to 0 if not set), then by title
-        publicNarratives.sort((a, b) => {
+        const narrativesData = await apiGet('/api/narratives');
+        // Server sorts by `order`; break ties by title to match old behavior.
+        const sorted = [...(narrativesData || [])].sort((a, b) => {
           const orderA = typeof a.order === 'number' ? a.order : 0;
           const orderB = typeof b.order === 'number' ? b.order : 0;
           if (orderA !== orderB) return orderA - orderB;
           return (a.title || '').localeCompare(b.title || '');
         });
-        setNarratives(publicNarratives);
+        setNarratives(sorted);
       } catch (err) {
         console.error('Error fetching data:', err);
       }
@@ -264,12 +245,11 @@ function Controller({
 
   const handleCheckboxChange = async (mapId, checked) => {
     try {
-      const snap = await getDoc(doc(db, 'maps', mapId));
-      if (!snap.exists()) {
+      const mapDetails = await apiGet(`/api/maps/${mapId}`);
+      if (!mapDetails) {
         console.log(`No map document found with ID: ${mapId}`);
         return;
       }
-      const mapDetails = { id: mapId, ...snap.data() };
 
       // Check if modifier key was pressed during the click (Command on Mac, Control on PC)
       const isModifierPressed = checkboxModifierStateRef.current[mapId] || false;

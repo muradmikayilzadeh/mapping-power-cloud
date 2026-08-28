@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { apiGet, resolveAssetUrl } from '../../api/client';
 import './style.modules.css';
 
 function Navbar({ onLinkClick }) {
@@ -10,10 +9,8 @@ function Navbar({ onLinkClick }) {
     useEffect(() => {
         const fetchLogo = async () => {
             try {
-                const docRef = doc(db, 'settings', 'settingsData');
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const settings = docSnap.data();
+                const settings = await apiGet('/api/settings/public');
+                if (settings) {
                     setLogoUrl(settings.logo);
                 } else {
                     console.error('Settings document does not exist!');
@@ -29,7 +26,7 @@ function Navbar({ onLinkClick }) {
     return (
         <nav className="navbar">
             <div className="logoSection">
-                <img src={logoUrl || '../../images/logo.svg'} alt="logo" className="logo" />
+                <img src={resolveAssetUrl(logoUrl) || '../../images/logo.svg'} alt="logo" className="logo" />
             </div>
             <div className="itemsSection">
                 <ul>

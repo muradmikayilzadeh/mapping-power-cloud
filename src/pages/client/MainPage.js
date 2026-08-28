@@ -1,7 +1,6 @@
 import * as maptilersdk from '@maptiler/sdk';
 import React, { useEffect, useState, useRef } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { apiGet, resolveAssetUrl } from '../../api/client';
 import Navbar from '../../components/Navbar';
 import Controller from '../../components/Controller';
 import Basemaps from '../../components/BaseMaps';
@@ -36,30 +35,25 @@ const MainPage = () => {
   useEffect(() => {
     const checkSiteAccess = async () => {
       try {
-        const docRef = doc(db, 'settings', 'settingsData');
-        const docSnap = await getDoc(docRef);
-        const data = docSnap.exists() ? docSnap.data() : {};
-        const isLive = data.siteLive !== false;
-
-        if (isLive) {
-          setSiteAccess({ loading: false, allowed: true, preview: false });
-          return;
-        }
-
         const params = new URLSearchParams(window.location.search);
-        const previewParam = params.get('preview');
-        const storedToken = localStorage.getItem(PREVIEW_TOKEN_STORAGE_KEY);
-        const validToken = data.previewToken;
-        const hasAccess = !!validToken && (previewParam === validToken || storedToken === validToken);
+        const previewParam = params.get('preview') || '';
+        const storedToken = localStorage.getItem(PREVIEW_TOKEN_STORAGE_KEY) || '';
+        const query = new URLSearchParams();
+        if (previewParam) query.set('previewParam', previewParam);
+        if (storedToken) query.set('storedToken', storedToken);
+        const qs = query.toString();
 
-        if (hasAccess) {
-          localStorage.setItem(PREVIEW_TOKEN_STORAGE_KEY, validToken);
+        const data = await apiGet(`/api/settings/public${qs ? `?${qs}` : ''}`);
+        const access = (data && data.access) || { allowed: true, preview: false };
+
+        if (access.allowed && (previewParam || storedToken)) {
+          localStorage.setItem(PREVIEW_TOKEN_STORAGE_KEY, previewParam || storedToken);
         }
 
-        setSiteAccess({ loading: false, allowed: hasAccess, preview: hasAccess });
+        setSiteAccess({ loading: false, allowed: access.allowed, preview: access.preview });
       } catch (e) {
         console.error('Error checking site visibility:', e);
-        // Fail open so a transient Firestore hiccup doesn't take the live site down.
+        // Fail open so a transient API hiccup doesn't take the live site down.
         setSiteAccess({ loading: false, allowed: true, preview: false });
       }
     };
@@ -69,10 +63,8 @@ const MainPage = () => {
 
   const fetchContent = async (field) => {
     try {
-      const docRef = doc(db, 'settings', 'settingsData');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
+      const data = await apiGet('/api/settings/public');
+      if (data) {
         setModalData({
           isOpen: true,
           title: field.charAt(0).toUpperCase() + field.slice(1),
@@ -149,12 +141,10 @@ const MainPage = () => {
       } else {
         const resetToDefaultLocation = async () => {
         try {
-          const docRef = doc(db, 'settings', 'settingsData');
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
+          const data = await apiGet('/api/settings/public');
+          if (data) {
             const { geolocation, mapZoom } = data;
-            
+
             if (geolocation && Array.isArray(geolocation) && geolocation.length === 2) {
               const [lat, lng] = geolocation;
               const zoom = typeof mapZoom === 'number' ? mapZoom : 10;

@@ -16,8 +16,7 @@ import {
   faTimeline
 } from '@fortawesome/free-solid-svg-icons';
 
-import { db } from '../../../firebase';
-import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { apiGet, apiPut, apiDelete, resolveAssetUrl } from '../../../api/client';
 import CollapsibleDescription from '../../../components/CollapsibleDescription';
 import styles from './style.module.css';
 
@@ -30,14 +29,14 @@ const MapsPage = () => {
 
   useEffect(() => {
     const fetchMapEntries = async () => {
-      const [mapsSnap, erasSnap, groupsSnap] = await Promise.all([
-        getDocs(collection(db, 'maps')),
-        getDocs(collection(db, 'eras')),
-        getDocs(collection(db, 'map_groups')),
+      const [mapsData, erasData, groupsData] = await Promise.all([
+        apiGet('/api/maps'),
+        apiGet('/api/eras'),
+        apiGet('/api/map-groups'),
       ]);
 
-      const eras = erasSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const groups = groupsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const eras = erasData || [];
+      const groups = groupsData || [];
 
       // For a given map id, find the eras and map groups it belongs to.
       // A map can be in an era directly, or via a map group that is in an era.
@@ -62,21 +61,21 @@ const MapsPage = () => {
         };
       };
 
-      const maps = mapsSnap.docs.map(d => {
-        const data = d.data();
+      const maps = (mapsData || []).map(data => {
         return {
-          id: d.id,
+          id: data.id,
           title: data.title || '',
           description: data.description || '',
           map_type: data.map_type || '',
           // default URLs to empty string
-          snippetUrl:
+          snippetUrl: resolveAssetUrl(
             data.map_type === 'raster'
               ? data.raster_image || ''
-              : data.vector_file || '',
+              : data.vector_file || ''
+          ),
           // default visibility: if field absent -> visible (true)
           public: Object.prototype.hasOwnProperty.call(data, 'public') ? !!data.public : true,
-          ...membershipsFor(d.id),
+          ...membershipsFor(data.id),
         };
       });
       setMapEntries(maps);
@@ -96,7 +95,7 @@ const MapsPage = () => {
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this map?')) {
       try {
-        await deleteDoc(doc(db, 'maps', id));
+        await apiDelete(`/api/maps/${id}`);
         setMapEntries(prev => prev.filter(e => e.id !== id));
         setFilteredEntries(prev => prev.filter(e => e.id !== id));
       } catch (error) {
@@ -116,7 +115,7 @@ const MapsPage = () => {
     setFilteredEntries(prev => prev.map(e => (e.id === id ? { ...e, public: newValue } : e)));
 
     try {
-      await updateDoc(doc(db, 'maps', id), { public: newValue });
+      await apiPut(`/api/maps/${id}`, { public: newValue });
     } catch (err) {
       console.error('Failed to update visibility:', err);
       // rollback on failure

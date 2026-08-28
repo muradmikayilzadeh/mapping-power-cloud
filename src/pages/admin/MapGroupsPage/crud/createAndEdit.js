@@ -3,8 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Editor from 'react-simple-wysiwyg';
 import { faHome, faMap, faBook, faCog, faTimeline, faGripVertical, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { db } from '../../../../firebase';
-import { collection, getDocs, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { apiGet, apiPost, apiPut } from '../../../../api/client';
 import DraggableList from '../../../../components/DraggableList';
 import styles from '../style.module.css';
 
@@ -23,21 +22,20 @@ const CreateMapGroupPage = () => {
 
   useEffect(() => {
     const fetchMapEntries = async () => {
-      const querySnapshot = await getDocs(collection(db, 'maps'));
-      const maps = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        title: doc.data().title,
-        description: doc.data().description,
-        snippet: doc.data().map_type === 'raster' ? doc.data().raster_image : ''
+      const data = (await apiGet('/api/maps')) || [];
+      const maps = data.map(m => ({
+        id: m.id,
+        title: m.title,
+        description: m.description,
+        snippet: m.map_type === 'raster' ? m.raster_image : ''
       }));
       setMapEntries(maps);
     };
 
     const fetchMapGroupData = async () => {
       if (id) {
-        const mapGroupDoc = await getDoc(doc(db, 'map_groups', id));
-        if (mapGroupDoc.exists()) {
-          const data = mapGroupDoc.data();
+        const data = await apiGet(`/api/map-groups/${id}`);
+        if (data) {
           setTitle(data.title);
           setYears(data.years);
           setHtml(data.description);
@@ -64,10 +62,10 @@ const CreateMapGroupPage = () => {
     setIsSubmitting(true);
     try {
       if (id) {
-        await updateDoc(doc(db, 'map_groups', id), mapGroupData);
+        await apiPut(`/api/map-groups/${id}`, mapGroupData);
         alert('Map Group updated successfully!');
       } else {
-        await addDoc(collection(db, 'map_groups'), mapGroupData);
+        await apiPost('/api/map-groups', mapGroupData);
         alert('Map Group created successfully!');
       }
       navigate('/map-groups');

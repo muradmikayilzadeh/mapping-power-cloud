@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHome, faMap, faBook, faCog, faEdit, faEye, faEyeSlash, faTimes, faTimeline, faArrowUp, faArrowDown, faGripVertical } from '@fortawesome/free-solid-svg-icons';
-import { db } from '../../../firebase';
-import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { apiGet, apiPut, apiDelete } from '../../../api/client';
 import CollapsibleDescription from '../../../components/CollapsibleDescription';
 import DraggableList from '../../../components/DraggableList';
 import styles from './style.module.css';
@@ -16,18 +15,14 @@ const NarrativesPage = () => {
 
   useEffect(() => {
     const fetchNarratives = async () => {
-      const querySnapshot = await getDocs(collection(db, 'narratives'));
-      const narrativesData = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          title: data.title,
-          description: data.description,
-          order: typeof data.order === 'number' ? data.order : 0,
-          // default visibility: if field absent -> visible (true)
-          public: Object.prototype.hasOwnProperty.call(data, 'public') ? !!data.public : true
-        };
-      });
+      const data = (await apiGet('/api/narratives')) || [];
+      const narrativesData = data.map(n => ({
+        id: n.id,
+        title: n.title,
+        description: n.description,
+        order: typeof n.order === 'number' ? n.order : 0,
+        public: Object.prototype.hasOwnProperty.call(n, 'public') ? !!n.public : true
+      }));
       // Sort by order
       narrativesData.sort((a, b) => a.order - b.order);
       setNarratives(narrativesData);
@@ -50,7 +45,7 @@ const NarrativesPage = () => {
     const confirmDelete = window.confirm('Are you sure you want to delete this narrative?');
     if (confirmDelete) {
       try {
-        await deleteDoc(doc(db, 'narratives', id));
+        await apiDelete(`/api/narratives/${id}`);
         setNarratives(narratives.filter(narrative => narrative.id !== id));
         setFilteredNarratives(filteredNarratives.filter(narrative => narrative.id !== id));
       } catch (error) {
@@ -70,7 +65,7 @@ const NarrativesPage = () => {
     setFilteredNarratives(prev => prev.map(n => (n.id === id ? { ...n, public: newValue } : n)));
 
     try {
-      await updateDoc(doc(db, 'narratives', id), { public: newValue });
+      await apiPut(`/api/narratives/${id}`, { public: newValue });
     } catch (err) {
       console.error('Failed to update visibility:', err);
       // rollback on failure
@@ -122,24 +117,21 @@ const NarrativesPage = () => {
     setFilteredNarratives(filtered);
 
     try {
-      // Update both narratives in Firestore
-      await updateDoc(doc(db, 'narratives', id), { order: newCurrentOrder });
-      await updateDoc(doc(db, 'narratives', target.id), { order: newTargetOrder });
+      // Update both narratives
+      await apiPut(`/api/narratives/${id}`, { order: newCurrentOrder });
+      await apiPut(`/api/narratives/${target.id}`, { order: newTargetOrder });
     } catch (err) {
       console.error('Failed to update order:', err);
       // Reload on failure - fetch narratives again
       try {
-        const querySnapshot = await getDocs(collection(db, 'narratives'));
-        const narrativesData = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            title: data.title,
-            description: data.description,
-            order: typeof data.order === 'number' ? data.order : 0,
-            public: Object.prototype.hasOwnProperty.call(data, 'public') ? !!data.public : true
-          };
-        });
+        const reloadData = (await apiGet('/api/narratives')) || [];
+        const narrativesData = reloadData.map(n => ({
+          id: n.id,
+          title: n.title,
+          description: n.description,
+          order: typeof n.order === 'number' ? n.order : 0,
+          public: Object.prototype.hasOwnProperty.call(n, 'public') ? !!n.public : true
+        }));
         narrativesData.sort((a, b) => a.order - b.order);
         setNarratives(narrativesData);
         const filteredReload = narrativesData.filter(n => 
@@ -163,7 +155,7 @@ const NarrativesPage = () => {
     setFilteredNarratives(updated);
     try {
       await Promise.all(
-        updated.map((n) => updateDoc(doc(db, 'narratives', n.id), { order: n.order }))
+        updated.map((n) => apiPut(`/api/narratives/${n.id}`, { order: n.order }))
       );
     } catch (err) {
       console.error('Failed to update order:', err);

@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import * as maptilersdk from '@maptiler/sdk';
 import '@maptiler/sdk/dist/maptiler-sdk.css';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { apiGet, resolveAssetUrl } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import styles from './style.module.css';
 import pinDirectional from './pin-directional.png';
 import pin from './pin.png';
@@ -12,12 +12,7 @@ import Lightbox from './Lightbox';
 
 const fetchSettingsData = async () => {
   try {
-    const docRef = doc(db, 'settings', 'settingsData');
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      return docSnap.data();
-    }
-    return null;
+    return await apiGet('/api/settings/public');
   } catch (error) {
     console.error('Error fetching settings data:', error);
     return null;
@@ -26,12 +21,7 @@ const fetchSettingsData = async () => {
 
 const fetchMapData = async (mapId) => {
   try {
-    const docRef = doc(db, 'maps', mapId);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      return { id: docSnap.id, ...docSnap.data() };
-    }
-    return null;
+    return await apiGet(`/api/maps/${mapId}`);
   } catch (error) {
     console.error(`Error fetching map ${mapId}:`, error);
     return null;
@@ -57,7 +47,7 @@ export default function Map({
   const [liveCenter, setLiveCenter] = useState({ lng: -122.4194, lat: 37.7749 });
   const [liveZoom, setLiveZoom] = useState(12);
 
-  const [isAuthorized, setIsAuthorized] = useState(false);
+  const { isAuthenticated, logout } = useAuth();
   const [copyStatus, setCopyStatus] = useState('');
   // Enlarged view of a clicked pin image (null when closed)
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -149,18 +139,6 @@ export default function Map({
   useEffect(() => {
     if (onFlyToLocation) onFlyToLocation(() => flyToLocation);
   }, [onFlyToLocation]);
-
-  useEffect(() => {
-    const readAuth = () => {
-      setIsAuthorized(localStorage.getItem('isAuthorized') === 'true');
-    };
-    readAuth();
-    const onStorage = (e) => {
-      if (e.key === 'isAuthorized') readAuth();
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
 
   useEffect(() => {
     const fetchInitialSettings = async () => {
@@ -612,7 +590,7 @@ export default function Map({
         const coordinates = image_bounds_coords.map((coord) => coord.split(',').map(Number));
         map.current.addSource(sourceId, {
           type: 'image',
-          url: raster_image,
+          url: resolveAssetUrl(raster_image),
           coordinates,
         });
         map.current.addLayer({
@@ -649,7 +627,7 @@ export default function Map({
             },
             properties: {
               bearing: Number(point.bearing),
-              image: point.image,
+              image: resolveAssetUrl(point.image),
               caption: point.description,
               footnotes: point.footnotes,
               is_directional: point.is_directional,
@@ -765,8 +743,7 @@ export default function Map({
   );
 
   const handleUnauthorize = () => {
-    localStorage.removeItem('isAuthorized');
-    window.location.reload();
+    logout();
   };
 
   const handleCopyJson = async () => {
@@ -795,7 +772,7 @@ export default function Map({
 
   return (
     <div className={styles.mapWrap} style={{ position: 'relative' }}>
-      {isAuthorized && (
+      {isAuthenticated && (
         <div
           style={{
             position: 'absolute',

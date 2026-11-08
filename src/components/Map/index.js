@@ -48,6 +48,15 @@ export default function Map({
   const [liveZoom, setLiveZoom] = useState(12);
 
   const { isAuthenticated, logout } = useAuth();
+  // JSON overlay is shown to logged-in admins or after passing /authorize
+  const [isAuthorized] = useState(() => {
+    try {
+      return localStorage.getItem('isAuthorized') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const showJsonOverlay = isAuthenticated || isAuthorized;
   const [copyStatus, setCopyStatus] = useState('');
   // Enlarged view of a clicked pin image (null when closed)
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -462,13 +471,19 @@ export default function Map({
 
     hydrateMaps();
 
-    const { center, zoom: chapterZoom } = chapter;
+    const { zoom: chapterZoom } = chapter;
+    // 0,0 is the editor's old "no location yet" placeholder (open ocean off
+    // Africa) — never fly there; just stay where the map is.
+    const center =
+      Array.isArray(chapter.center) && !(chapter.center[0] === 0 && chapter.center[1] === 0)
+        ? chapter.center
+        : null;
 
     if (Array.isArray(center) && center.length === 2 && typeof chapterZoom === 'number') {
       map.current.flyTo({ center, zoom: chapterZoom, essential: true });
     } else if (Array.isArray(center) && center.length === 2) {
       map.current.flyTo({ center, essential: true });
-    } else if (typeof chapterZoom === 'number') {
+    } else if (typeof chapterZoom === 'number' && !Array.isArray(chapter.center)) {
       map.current.flyTo({ zoom: chapterZoom, essential: true });
     }
   }, [activeChapter, selectedNarrative]);
@@ -742,8 +757,16 @@ export default function Map({
     2
   );
 
-  const handleUnauthorize = () => {
-    logout();
+  const handleUnauthorize = async () => {
+    try {
+      localStorage.removeItem('isAuthorized');
+    } catch {}
+    if (isAuthenticated) {
+      try {
+        await logout();
+      } catch {}
+    }
+    window.location.reload();
   };
 
   const handleCopyJson = async () => {
@@ -772,7 +795,7 @@ export default function Map({
 
   return (
     <div className={styles.mapWrap} style={{ position: 'relative' }}>
-      {isAuthenticated && (
+      {showJsonOverlay && (
         <div
           style={{
             position: 'absolute',

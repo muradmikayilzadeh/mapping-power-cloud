@@ -42,7 +42,7 @@ async function start() {
       store: MongoStore.create({ mongoUrl: MONGO_URI }),
       cookie: {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: process.env.COOKIE_SECURE === 'true',
         sameSite: 'lax',
         maxAge: 1000 * 60 * 60 * 24 * 7,
       },

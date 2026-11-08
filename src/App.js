@@ -1,5 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
 import { apiGet } from './api/client';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -30,6 +30,37 @@ function RequireAuth({ children }) {
   return children;
 }
 
+// --- Simple page component that prompts for a password and sets a flag ---
+// Only toggles the map's JSON overlay (see src/components/Map/index.js); it
+// does not grant admin access.
+function AuthorizePage() {
+  const ranRef = useRef(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Guard against double-invocation in React Strict Mode
+    if (ranRef.current) return;
+    ranRef.current = true;
+
+    const input = window.prompt('Enter authorization password:');
+    const ok = input === '2pygafmX64LY';
+
+    if (ok) {
+      localStorage.setItem('isAuthorized', 'true');
+      alert('✅ Authorized successfully.');
+    } else {
+      localStorage.removeItem('isAuthorized');
+      alert('❌ Incorrect password.');
+    }
+    // Navigate to homepage after clicking OK on alert
+    setTimeout(() => {
+      navigate('/');
+    }, 0);
+  }, [navigate]);
+
+  return null;
+}
+
 function App() {
   useEffect(() => {
     const fetchProjectTitle = async () => {
@@ -50,6 +81,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MainPage />} />
           <Route path="/admin" element={<AdminLoginPage />} />
+          <Route path="/authorize" element={<AuthorizePage />} />
           <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
           <Route path="/maps" element={<RequireAuth><MapsPage /></RequireAuth>} />
           <Route path="/new-map" element={<RequireAuth><CreateMapPage /></RequireAuth>} />

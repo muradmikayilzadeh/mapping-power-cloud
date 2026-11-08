@@ -1,7 +1,11 @@
 // Thin fetch wrapper for the self-hosted API (replaces the old direct
 // Firestore/Storage SDK calls). Always sends the session cookie so admin
 // requests stay authenticated.
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+// Set REACT_APP_API_URL to an empty value in production so requests go to
+// the same origin the page was loaded from (works behind the domain/HTTPS
+// and on any other address the server is reached at).
+const API_URL =
+  process.env.REACT_APP_API_URL !== undefined ? process.env.REACT_APP_API_URL : 'http://localhost:4000';
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {

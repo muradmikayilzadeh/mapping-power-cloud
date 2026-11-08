@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHome, faMap, faBook, faCog, faTimeline, faArrowUp, faArrowDown, faGripVertical, faSpinner } from '@fortawesome/free-solid-svg-icons';
@@ -8,25 +8,60 @@ import DraggableList from '../../../../components/DraggableList';
 import { apiGet, apiPost, apiPut } from '../../../../api/client';
 import styles from '../style.module.css';
 
+const DEFAULT_HOME_VIEW = { center: [-122.4194, 37.7749], zoom: 12 }; // San Francisco
+
+// [lng, lat] with real numbers, and not the 0,0 placeholder
+const isValidCenter = (c) =>
+  Array.isArray(c) &&
+  c.length === 2 &&
+  c.every((n) => typeof n === 'number' && Number.isFinite(n)) &&
+  !(c[0] === 0 && c[1] === 0);
+
+const makeDataJsonText = (center, zoom, maps) =>
+  JSON.stringify({ currentMapFocusLocation: center, currentZoomLevel: zoom, maps }, null, 2);
+
 const CreateNarrativePage = () => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
-  const [chapters, setChapters] = useState([]); // Changed to array to preserve order
+  // Array position IS the chapter order — what you see in the list is what
+  // gets saved. `order` is only written out (as the index) on save.
+  const [chapters, setChapters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Site home location from Settings ([lng, lat]); used as the starting view
+  // for new chapters instead of 0,0 (the middle of the Atlantic).
+  const [homeView, setHomeView] = useState(DEFAULT_HOME_VIEW);
+
+  // Key of a just-added chapter to scroll into view once it renders
+  const scrollToKeyRef = useRef(null);
 
   const navigate = useNavigate();
   const { id } = useParams();
 
-  // Generate a random Chapter ID
+  // Generate a random, collision-proof chapter id / key
   const generateChapterId = () => {
     return `chapter-${Math.random().toString(36).substring(2, 9)}-${Date.now().toString(36)}`;
   };
 
-  // Load narrative if editing; also backfill the JSON textarea from stored fields
+  // Load settings (home view) and the narrative if editing
   useEffect(() => {
     const fetchData = async () => {
+      let home = DEFAULT_HOME_VIEW;
+      try {
+        const settings = await apiGet('/api/settings');
+        const geo = settings && settings.geolocation;
+        if (Array.isArray(geo) && geo.length === 2 && isValidCenter([Number(geo[1]), Number(geo[0])])) {
+          home = {
+            center: [Number(geo[1]), Number(geo[0])], // settings store [lat, lng]
+            zoom: typeof settings.mapZoom === 'number' ? settings.mapZoom : DEFAULT_HOME_VIEW.zoom,
+          };
+        }
+      } catch (err) {
+        console.error('Error loading settings:', err);
+      }
+      setHomeView(home);
+
       try {
         if (id) {
           const data = await apiGet(`/api/narratives/${id}`);
@@ -36,46 +71,31 @@ const CreateNarrativePage = () => {
             // Default to true (public) if field doesn't exist
             setIsPublic(Object.prototype.hasOwnProperty.call(data, 'public') ? !!data.public : true);
 
-            const incomingChapters = data.chapters || {};
-            const normalized = [];
-
-            // Convert object to array and preserve order
-            const chapterEntries = Object.entries(incomingChapters);
-            // Sort by order field if it exists, otherwise maintain insertion order
-            chapterEntries.sort((a, b) => {
-              const orderA = a[1].order !== undefined ? a[1].order : 0;
-              const orderB = b[1].order !== undefined ? b[1].order : 0;
-              return orderA - orderB;
+            const chapterEntries = Object.entries(data.chapters || {});
+            // Stable sort by stored order (entries without one keep their place)
+            const withIndex = chapterEntries.map((entry, i) => ({ entry, i }));
+            withIndex.sort((a, b) => {
+              const orderA = typeof a.entry[1].order === 'number' ? a.entry[1].order : a.i;
+              const orderB = typeof b.entry[1].order === 'number' ? b.entry[1].order : b.i;
+              return orderA - orderB || a.i - b.i;
             });
 
-            chapterEntries.forEach(([key, ch], index) => {
-              // Prepare JSON text from existing fields, if present
-              const jsonFromExisting = {
-                currentMapFocusLocation:
-                  Array.isArray(ch.center) && ch.center.length === 2
-                    ? ch.center
-                    : [0, 0],
-                currentZoomLevel:
-                  typeof ch.zoom === 'number' ? ch.zoom : 10,
-                maps: Array.isArray(ch.maps) ? ch.maps : [],
-              };
-
-              // Generate chapter_id if it doesn't exist
-              const chapterId = ch.chapter_id || generateChapterId();
-
-              normalized.push({
-                key: key,
-                chapter_id: chapterId,
-                speed: typeof ch.speed === 'number' ? ch.speed : 0.5,
-                content: ch.content || '',
-                dataJsonText: JSON.stringify(jsonFromExisting, null, 2),
-                order: ch.order !== undefined ? ch.order : index, // Assign order if missing
-              });
-            });
-
-            // Sort by order to ensure correct sequence
-            normalized.sort((a, b) => a.order - b.order);
-            setChapters(normalized);
+            setChapters(
+              withIndex.map(({ entry: [key, ch] }) => {
+                const hasCenter = isValidCenter(ch.center);
+                return {
+                  key,
+                  chapter_id: ch.chapter_id || generateChapterId(),
+                  speed: typeof ch.speed === 'number' ? ch.speed : 0.5,
+                  content: ch.content || '',
+                  dataJsonText: makeDataJsonText(
+                    hasCenter ? ch.center : home.center,
+                    hasCenter && typeof ch.zoom === 'number' ? ch.zoom : home.zoom,
+                    Array.isArray(ch.maps) ? ch.maps : []
+                  ),
+                };
+              })
+            );
           }
         }
       } catch (err) {
@@ -89,37 +109,57 @@ const CreateNarrativePage = () => {
     fetchData();
   }, [id]);
 
-  const addChapter = (atIndex = -1) => {
-    const newChapterKey = `chapter-${Date.now()}`;
-    const newChapterId = generateChapterId();
-    const newChapter = {
-      key: newChapterKey,
-      chapter_id: newChapterId,
-      speed: 0.5,
-      content: '',
-      dataJsonText: JSON.stringify(
-        {
-          currentMapFocusLocation: [0, 0],
-          currentZoomLevel: 10,
-          maps: [],
-        },
-        null,
-        2
-      ),
-      order: 0,
-    };
-
-    setChapters((prev) => {
-      let newChapters = [...prev].sort((a, b) => (a.order || 0) - (b.order || 0));
-      if (atIndex === -1) {
-        newChapters.push(newChapter);
-      } else {
-        newChapters.splice(atIndex, 0, newChapter);
+  // New chapters start at the previous chapter's view (so you stay in the
+  // same area), or the site's home location if there is no previous chapter.
+  const startingViewFor = (list, atIndex) => {
+    const prev = list[atIndex - 1];
+    if (prev) {
+      try {
+        const parsed = JSON.parse(prev.dataJsonText || '{}');
+        if (isValidCenter(parsed.currentMapFocusLocation) && typeof parsed.currentZoomLevel === 'number') {
+          return { center: parsed.currentMapFocusLocation, zoom: parsed.currentZoomLevel };
+        }
+      } catch (err) {
+        // previous chapter's JSON is mid-edit/invalid — fall back to home
       }
-      // Re-index all to maintain order consistency
-      return newChapters.map((ch, i) => ({ ...ch, order: i }));
+    }
+    return homeView;
+  };
+
+  // `atIndex` is the position the new chapter will occupy; omitted = append
+  // to the end.
+  const addChapter = (atIndex) => {
+    setChapters((prev) => {
+      const index = Number.isInteger(atIndex) ? Math.max(0, Math.min(atIndex, prev.length)) : prev.length;
+      const view = startingViewFor(prev, index);
+      const newChapter = {
+        key: generateChapterId(),
+        chapter_id: generateChapterId(),
+        speed: 0.5,
+        content: '',
+        dataJsonText: makeDataJsonText(view.center, view.zoom, []),
+      };
+      const next = [...prev];
+      next.splice(index, 0, newChapter);
+      scrollToKeyRef.current = newChapter.key;
+      return next;
     });
   };
+
+  useEffect(() => {
+    const key = scrollToKeyRef.current;
+    if (!key) return;
+    // The drag-and-drop list mounts a frame late, so wait a moment for the
+    // new chapter's card to exist before scrolling to it.
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`chapter-card-${key}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        scrollToKeyRef.current = null;
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [chapters]);
 
   const removeChapter = (index) => {
     if (!window.confirm('Are you sure you want to remove this chapter?')) return;
@@ -127,40 +167,23 @@ const CreateNarrativePage = () => {
   };
 
   const moveChapter = (index, direction) => {
-    if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === chapters.length - 1) return;
-
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
     setChapters((prev) => {
-      const newChapters = [...prev];
-      const targetIndex = direction === 'up' ? index - 1 : index + 1;
-      
-      // Swap orders
-      const tempOrder = newChapters[index].order;
-      newChapters[index].order = newChapters[targetIndex].order;
-      newChapters[targetIndex].order = tempOrder;
-      
-      // Swap positions
-      [newChapters[index], newChapters[targetIndex]] = [newChapters[targetIndex], newChapters[index]];
-      
-      return newChapters;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
     });
   };
-
-  const sortedChaptersForDisplay = [...chapters].sort((a, b) => (a.order || 0) - (b.order || 0));
 
   const handleReorderChapters = (reordered) => {
-    setChapters(reordered.map((ch, i) => ({ ...ch, order: i })));
+    setChapters(reordered);
   };
 
-  const handleChapterField = (index, field, value) => {
-    setChapters((prev) => {
-      const newChapters = [...prev];
-      newChapters[index] = {
-        ...newChapters[index],
-        [field]: value,
-      };
-      return newChapters;
-    });
+  // Updates by key (not index), so an edit can never land on a different
+  // chapter if the list shifted in between.
+  const handleChapterField = (key, field, value) => {
+    setChapters((prev) => prev.map((ch) => (ch.key === key ? { ...ch, [field]: value } : ch)));
   };
 
   const handleFormSubmit = async (e) => {
@@ -171,14 +194,15 @@ const CreateNarrativePage = () => {
     setIsSubmitting(true);
     try {
 
-    // Transform chapters for storage: parse JSON and attach derived fields
-    // Sort by order first to ensure correct sequence
-    const sortedChapters = [...chapters].sort((a, b) => (a.order || 0) - (b.order || 0));
+    // Transform chapters for storage: parse JSON and attach derived fields.
+    // The list order on screen is the saved order.
     const chaptersForSave = {};
+    const usedKeys = new Set();
 
-    // Use for...of to allow direct 'return' to stop the update if validation fails
-    for (const [index, ch] of sortedChapters.entries()) {
-      const key = ch.key || `chapter-${Date.now()}-${index}`;
+    for (const [index, ch] of chapters.entries()) {
+      let key = ch.key || generateChapterId();
+      if (usedKeys.has(key)) key = generateChapterId();
+      usedKeys.add(key);
 
       // Parse per-chapter Data JSON
       let parsed;
@@ -206,11 +230,18 @@ const CreateNarrativePage = () => {
         return; // HALT COMPLETELY
       }
 
+      if (!isValidCenter(parsed.currentMapFocusLocation)) {
+        alert(
+          `Chapter ${index + 1}: "currentMapFocusLocation" is 0,0 (the middle of the ocean). Paste this chapter's map JSON before saving.`
+        );
+        return; // HALT COMPLETELY
+      }
+
       chaptersForSave[key] = {
         chapter_id: ch.chapter_id || '',
         speed: typeof ch.speed === 'number' ? ch.speed : Number(ch.speed) || 0.5,
         content: ch.content || '',
-        order: ch.order !== undefined ? ch.order : index, // Preserve order
+        order: index,
         // Derived fields stored for the player/Map to use
         center: parsed.currentMapFocusLocation, // [lng, lat]
         zoom: parsed.currentZoomLevel, // number
@@ -260,7 +291,15 @@ const CreateNarrativePage = () => {
       navigate('/narratives');
     } catch (error) {
       console.error('Error creating/updating narrative: ', error);
-      alert('Error creating/updating narrative. Please try again.');
+      if (/auth/i.test(error.message || '')) {
+        alert(
+          'Your admin login has expired, so the narrative was NOT saved.\n\n' +
+            'Keep this tab open, log in again in a new tab (/admin), then come back here and click ' +
+            (id ? 'Update' : 'Save') + ' again — your edits on this page are kept.'
+        );
+      } else {
+        alert(`Error creating/updating narrative: ${error.message || 'unknown error'}. Your edits are still on this page — please try again.`);
+      }
     }
     } finally {
       setIsSubmitting(false);
@@ -301,7 +340,7 @@ const CreateNarrativePage = () => {
           <h1>{id ? 'Edit Narrative' : 'Create Narrative'}</h1>
           <button 
             type="button" 
-            onClick={() => addChapter(0)}
+            onClick={() => addChapter()}
             style={{
               padding: '8px 16px',
               backgroundColor: '#28a745',
@@ -314,7 +353,7 @@ const CreateNarrativePage = () => {
               boxShadow: '0 2px 4px rgba(40, 167, 69, 0.2)'
             }}
           >
-            + Add Chapter
+            + Add Chapter at End
           </button>
         </div>
 
@@ -377,20 +416,40 @@ const CreateNarrativePage = () => {
 
               <div className={styles.chapters}>
                 {chapters.length === 0 && (
-                  <p style={{ marginTop: 12 }}>No chapters yet. Click "Add Chapter".</p>
+                  <p style={{ marginTop: 12 }}>No chapters yet. Click "Add Chapter at End".</p>
+                )}
+
+                {chapters.length > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', margin: '0 0 20px 0' }}>
+                    <button
+                      type="button"
+                      onClick={() => addChapter(0)}
+                      style={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #dee2e6',
+                        borderRadius: '20px',
+                        padding: '4px 12px',
+                        fontSize: '11px',
+                        color: '#6c757d',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                      }}
+                    >
+                      <span style={{ fontSize: '14px', lineHeight: 1 }}>+</span> Insert Chapter at Top
+                    </button>
+                  </div>
                 )}
 
                 <DraggableList
                   droppableId="narrative-chapters"
-                  items={sortedChaptersForDisplay}
+                  items={chapters}
                   getId={(ch) => ch.key}
                   onReorder={handleReorderChapters}
                   renderItem={(ch, displayIndex, dragHandleProps) => {
-                  // Find the actual index in the original array for move/remove operations
-                  const actualIndex = chapters.findIndex(c => c.key === ch.key);
+                  const actualIndex = displayIndex;
                   return (
                     <React.Fragment key={ch.key || `chapter-${displayIndex}`}>
-                      <div className={styles.chapterItem}>
+                      <div className={styles.chapterItem} id={`chapter-card-${ch.key}`}>
                         <div style={{
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -524,7 +583,7 @@ const CreateNarrativePage = () => {
                           value={ch.speed}
                           onChange={(e) =>
                             handleChapterField(
-                              actualIndex,
+                              ch.key,
                               'speed',
                               e.target.value === '' ? '' : Number(e.target.value)
                             )
@@ -536,7 +595,7 @@ const CreateNarrativePage = () => {
                         <RichTextEditor
                           value={ch.content}
                           onChange={(e) =>
-                            handleChapterField(actualIndex, 'content', e.target.value)
+                            handleChapterField(ch.key, 'content', e.target.value)
                           }
                           className={styles.richTextEditor}
                         />
@@ -547,7 +606,7 @@ const CreateNarrativePage = () => {
                           rows={8}
                           value={ch.dataJsonText}
                           onChange={(e) =>
-                            handleChapterField(actualIndex, 'dataJsonText', e.target.value)
+                            handleChapterField(ch.key, 'dataJsonText', e.target.value)
                           }
                           placeholder={`{\n  "currentMapFocusLocation": [-122.4194, 37.7749],\n  "currentZoomLevel": 12,\n  "maps": [\n    { "id": "abc", "opacityVal": 1 }\n  ]\n}`}
                           className={styles.textarea}
@@ -607,7 +666,7 @@ const CreateNarrativePage = () => {
               <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e9ecef' }}>
                 <button 
                   type="button" 
-                  onClick={addChapter}
+                  onClick={() => addChapter()}
                   style={{
                     padding: '10px 20px',
                     backgroundColor: '#007bff',
@@ -620,7 +679,7 @@ const CreateNarrativePage = () => {
                     marginBottom: '16px'
                   }}
                 >
-                  Add Chapter
+                  + Add Chapter at End
                 </button>
               </div>
             </div>
